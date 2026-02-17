@@ -349,6 +349,33 @@ def validate_order(param_names, function_dict):
 
     return True
 
+
+def unspool_labels(list_of_parameter_names, dicts, latex_dict):
+    """
+    Creates a set of labels for the parameters. Takes in your regular parameter names; outputs latex labels for everything. 
+    """
+    empty_list = []
+
+    params_to_fit = parameter_generation(list_of_parameter_names, dicts)
+    
+    for name in params_to_fit:
+        if "_HIGH_" in name:
+            name = name.split("_HIGH_")[0]
+            high_flag = True
+   
+        func_name = (function_dict[name].__name__)
+        func_params = latex_dict[func_name] ; pname = latex_dict[name]
+        
+        for _ in func_params:
+            if high_flag:
+                latex_string =f'{pname} Hi {_}'
+            else:
+                latex_string =f'{pname} {_}'
+            
+            empty_list.append(latex_string)
+        high_flag = False
+    return empty_list
+
 ####################
 ## BEGIN PRIORS
 ######################
