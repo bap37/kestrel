@@ -277,20 +277,45 @@ def simulator(theta: torch.Tensor, layout, param_names,
     # --------------------------------------------------
     
     output_distribution = preprocess_input_distribution(
-        dft, parameters_to_condition_on    ) #Prepare a tensor version of the conditioned parameters
-
-    #And stack the conditioned parameters
-    x = torch.stack(
-        [output_distribution[p] for p in parameters_to_condition_on],
-        dim=-1
+        dft, parameters_to_condition_on
     )
 
+    
+    #Check if any of the model parameters are split; if so, proceed to offer chopped distributions. 
+    if any(p in split_dict for p in param_names):
+
+        matching = [p for p in param_names if p in split_dict]
+        name = matching[0]
+        
+        split_param = split_dict[name][0]
+        split_val   = split_dict[name][1]
+    
+    
+        split_tensor = torch.tensor(
+        dft[split_param].to_numpy(),
+        dtype=torch.float32,
+        device=device
+    )
+    
+        x = split_outputs(
+            output_distribution,
+            split_tensor,
+            split_val,
+            parameters_to_condition_on
+        )
+        
+    else:
+        #And stack the conditioned parameters
+        x = torch.stack(
+            [output_distribution[p] for p in parameters_to_condition_on],
+            dim=-1
+        )
+    
     #debug flag will helpfully return a pandas dataframe containing your desired distribution
     if debug:
         return dft
     
     return x
-
 
 
 
@@ -376,6 +401,24 @@ def unspool_labels(list_of_parameter_names, dicts, latex_dict):
             empty_list.append(latex_string)
         high_flag = False
     return empty_list
+
+
+def split_outputs(output_distribution, split_tensor, split_val, param_list):
+    """
+    Splits the output tensors to return 4 parameters instead of 2; assumes that split_dict always splits on the same parameter.
+    """
+    mask_high = split_tensor >= split_val
+    mask_low  = ~mask_high
+
+    out = []
+    for p in param_list:
+        v = output_distribution[p]
+        out.extend([
+            torch.where(mask_low,  v, torch.zeros_like(v)),
+            torch.where(mask_high, v, torch.zeros_like(v))
+        ])
+
+    return torch.stack(out, dim=-1)
 
 ####################
 ## BEGIN PRIORS
