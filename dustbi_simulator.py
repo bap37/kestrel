@@ -1,0 +1,405 @@
+from dataclasses import dataclass
+import torch
+from torch.distributions import Normal, LogNormal, Exponential
+from sbi.utils import MultipleIndependent
+import torch
+import numpy as np
+from sbi.utils import BoxUniform
+
+#Create the layout function to describe input parameters theta
+
+@dataclass
+class ThetaLayout:
+    #Add_Function_Key
+    gauss: slice
+    exp: slice
+    lognormal: slice
+    double_gaussian: slice
+    n_gauss: int
+    n_lognormal: int
+    n_double_gaussian: int
+
+def build_theta_layout(n_gauss: int, n_exp: int, n_lognormal: int, n_double_gaussian: int) -> ThetaLayout:
+    
+    #Add_Function_Key
+    
+    idx = 0
+
+    gauss_slice = slice(idx, idx + 2 * n_gauss)
+    idx += 2 * n_gauss
+
+    exp_slice = slice(idx, idx + n_exp)
+    idx += n_exp
+    
+    lognormal_slice = slice(idx, idx + 2 * n_lognormal)
+    idx += 2 * n_lognormal
+    
+    double_gaussian_slice = slice(idx, idx + 5 * n_double_gaussian)
+    idx += 5 * n_double_gaussian
+    
+    return ThetaLayout(
+        gauss=gauss_slice,
+        exp=exp_slice,
+        lognormal=lognormal_slice,
+        double_gaussian=double_gaussian_slice,
+        n_gauss=n_gauss,
+        n_lognormal=n_lognormal,
+        n_double_gaussian=n_double_gaussian
+    )
+
+
+def build_layout(param_names, dicts):
+            
+    #Add_Function_Key 
+    n_gauss = 0 ; n_exp = 0 ; n_lognormal = 0; n_double_gaussian = 0
+    bounds_dict, function_dict, split_dict, priors_dict = dicts
+
+    
+    #need to include the splitting ability 
+    
+    for name in param_names:
+        
+        if "HIGH" in name: name = name.split("_HIGH_")[0]
+        funcname = function_dict[name].__name__    
+        
+        if   "DistGaussian"    == str(funcname): n_gauss += 1 ; 
+        elif "Exponential"     in str(funcname): n_exp   += 1 ;
+        elif "LogNormal"       in str(funcname): n_lognormal += 1;
+        elif "Double"          in str(funcname): n_double_gaussian = 0
+        #Add_Function_Key
+    
+    layout = build_theta_layout(n_gauss=n_gauss, n_exp=n_exp, 
+                                n_lognormal = n_lognormal, 
+                                n_double_gaussian = n_double_gaussian)
+    
+    return layout 
+    
+
+#######################
+## BEGIN SIMULATOR
+#######################
+
+def simulator(theta: torch.Tensor, layout, param_names,
+              input_distribution, df, dicts, dfdata, debug=False):
+
+    bounds_dict, function_dict, split_dict, priors_dict = dicts
+    high_flag = True
+    splits = list({v[0] for v in split_dict.values()})
+
+    
+    if theta.ndim == 1:
+        theta = theta.unsqueeze(0)
+
+    batch_size = theta.shape[0]
+    device = theta.device
+
+    #set up error catching for simulator
+    parameters_to_condition_on = ['c', 'mB']
+    BAD_SIMULATION = torch.full((len(dfdata), len(parameters_to_condition_on)), float('nan'), device=device)
+
+    # Brodie Note - need to remove 
+    df_tensor = {
+        col: torch.tensor(df[col].to_numpy(), dtype=torch.float32, device=device)
+        for col in list(priors_dict.keys())+splits+parameters_to_condition_on
+    }
+    
+    N = len(df)
+    joint_weights = torch.ones(batch_size, N, device=device)
+
+    # --------------------------------------------------
+    # GAUSSIAN PARAMETERS (vectorized accumulation)
+    # --------------------------------------------------
+
+    
+    gauss_theta = theta[:, layout.gauss]
+    gauss_theta = gauss_theta.view(batch_size, layout.n_gauss, 2)
+
+    for i in range(layout.n_gauss):
+        idx = layout.gauss.start + 2*i
+        name = param_names[i]
+    
+        if "_HIGH_" in name:
+            name = name.split("_HIGH_")[0]
+            high_flag = True
+
+        bounds = bounds_dict[name]
+        shape = function_dict[name]
+        
+        ########################
+        #stitch in the mass split 
+
+        x = df_tensor[name]  # (N,)
+        theta_g = gauss_theta[:, i, :]
+
+        if name in split_dict:
+
+            weights = torch.ones(batch_size, N, device=device)
+
+            split_param = split_dict[name][0]
+            split_val   = split_dict[name][1]
+
+            split_tensor = df_tensor[split_param]
+
+            if high_flag:
+                mask = split_tensor >= split_val
+            else:
+                mask = split_tensor < split_val
+
+                x_sub = x[mask]
+
+                density_sub = shape(x_sub, theta_g)  # or theta_e
+                density_sub = torch.clamp(density_sub, min=0.0)
+
+                if density_sub.ndim == 1:
+                    density_sub = density_sub.unsqueeze(0)
+
+                    weights[:, mask] = density_sub
+
+                    high_flag = False
+
+        else:
+            density = shape(x, theta_g)  # expect (N,) or broadcastable
+            weights = density 
+            weights = torch.clamp(weights, min=0.0)
+        
+        
+
+        ########################
+        
+
+
+        if weights.ndim == 1: weights = weights.unsqueeze(0)  # shape = (1, N)
+
+        joint_weights *= weights
+
+        
+
+    # --------------------------------------------------
+    # 🔹 EXPONENTIAL PARAMETERS
+    # --------------------------------------------------
+    exp_theta = theta[:, layout.exp]
+
+    for i in range(exp_theta.shape[1]):
+        name = param_names[layout.n_gauss + i]
+
+        if "_HIGH_" in name:
+            name = name.split("_HIGH_")[0]
+            high_flag = True
+
+        theta_e = exp_theta[:, i:i+1]
+
+        bounds = bounds_dict[name]
+        shape = function_dict[name]
+
+        x = df_tensor[name]
+        theta_e = exp_theta[:, i:i+1]
+
+        if name in split_dict:
+
+            weights = torch.ones(batch_size, N, device=device)
+
+            split_param = split_dict[name][0]
+            split_val   = split_dict[name][1]
+
+            split_tensor = df_tensor[split_param]
+
+            if high_flag:
+                mask = split_tensor >= split_val
+            else:
+                mask = split_tensor < split_val
+
+                x_sub = x[mask]
+
+                density_sub = shape(x_sub, theta_e)  # or theta_e
+                density_sub = torch.clamp(density_sub, min=0.0)
+
+                if density_sub.ndim == 1:
+                    density_sub = density_sub.unsqueeze(0)
+
+                    weights[:, mask] = density_sub
+
+                    high_flag = False
+
+                
+        else:
+            density = shape(x, theta_e)  # expect (N,) or broadcastable
+            weights = density 
+            weights = torch.clamp(weights, min=0.0)
+        
+        
+        #density = shape(x, theta_e)
+
+
+        if weights.ndim == 1: weights = weights.unsqueeze(0)  # shape = (1, N)
+
+        joint_weights *= weights
+
+
+    # --------------------------------------------------
+    # 🔹 Normalize + Resample Once
+    # --------------------------------------------------
+
+    weight_sum = joint_weights.sum(dim=1, keepdim=True)
+    
+    if weight_sum == 0:
+        return BAD_SIMULATION
+
+    normalized_weights = joint_weights / weight_sum
+
+    ess = 1.0 / torch.sum(normalized_weights ** 2, dim=1)
+    n_samples = int(torch.ceil(ess).item())
+
+    #Put me back in 
+    resampled_idx = torch.multinomial(
+        normalized_weights,
+        num_samples=n_samples,
+        replacement=True
+    )
+
+    indices = resampled_idx.squeeze(0).cpu().numpy()
+    dft = df.iloc[indices]
+    try:
+        dft = dft.sample(n=len(dfdata))
+    except ValueError:
+        return BAD_SIMULATION
+    
+    # --------------------------------------------------
+    # 🔹 Final preprocessing
+    # --------------------------------------------------
+    
+    output_distribution = preprocess_input_distribution(
+        dft, parameters_to_condition_on
+    )
+
+    
+    
+    x = torch.stack(
+        [output_distribution[p] for p in parameters_to_condition_on],
+        dim=-1
+    )
+
+    x[torch.isnan(x)] = 0.0
+    x[torch.isinf(x)] = 0.0
+    
+    #Put me back in
+    if debug:
+        return dft
+    
+    return x
+
+
+
+
+#####################
+### BEGIN SUPPORT FUNCTIONS
+###########################
+
+def preprocess_input_distribution(df, cols):
+    return {
+        col: torch.tensor(df[col].to_numpy(), dtype=torch.float32)
+        for col in cols
+    }
+
+def make_simulator(layout, df, param_names, dicts, dfdata, debug=False):
+
+    
+    params_to_fit = parameter_generation(param_names, dicts)
+    input_distribution = preprocess_input_distribution(df, param_names)
+
+    def simulator_with_input(theta):
+        return simulator(theta, layout, params_to_fit, input_distribution, df, dicts, dfdata, debug)
+
+    return simulator_with_input
+
+def parameter_generation(list_of_parameter_names, dicts):
+    
+    empty_list = []
+    bounds_dict, function_dict, split_dict, priors_dict = dicts
+    
+    for name in list_of_parameter_names:
+        if name in split_dict.keys():
+            split = (split_dict[name][0])
+            empty_list.append(name+"_HIGH_"+split)
+        empty_list.append(name)
+    return empty_list
+
+def weighted_quantile(values, weights, quantiles):
+    """
+    Compute weighted quantiles in PyTorch.
+    
+    values: (N,) tensor
+    weights: (N,) tensor, same shape as values
+    quantiles: tensor/list of floats in [0,1]
+    """
+    # sort values
+    sorted_vals, idx = torch.sort(values)
+    sorted_weights = weights[idx]
+    
+    # cumulative weights
+    cum_weights = torch.cumsum(sorted_weights, dim=0)
+    cum_weights = cum_weights / cum_weights[-1]  # normalize to [0,1]
+    
+    # interpolation
+    q = torch.tensor(quantiles, device=values.device)
+    out = []
+    for qi in q:
+        # find first index where cum_weights >= qi
+        i = torch.searchsorted(cum_weights, qi)
+        i = torch.clamp(i, 0, len(sorted_vals)-1)
+        out.append(sorted_vals[i])
+    return torch.stack(out)
+
+
+####################
+## BEGIN PRIORS
+######################
+
+def prior_generator(param_names, dicts):
+
+    bounds_dict, function_dict, split_dict, priors_dict = dicts
+    list_o_priors = []
+    
+    for name in param_names:
+        if "_HIGH_" in name:
+            name = name.split("_HIGH_")[0]
+
+        func_name = function_dict[name].__name__        
+        if func_name == "DistGaussian":
+            mu0, sigma0, need_positive = priors_dict[name]
+
+            mu_prior = BoxUniform(
+                low= torch.tensor([mu0[0]], dtype=torch.float32), 
+                high=torch.tensor([mu0[1]], dtype=torch.float32)
+                )
+
+            sigma_prior = BoxUniform(
+                low= torch.tensor([sigma0[0]], dtype=torch.float32),
+                high=torch.tensor([sigma0[1]], dtype=torch.float32)
+                )
+
+            list_o_priors.extend([mu_prior, sigma_prior])
+
+
+            if name in split_dict:
+                list_o_priors.extend([mu_prior, sigma_prior])
+
+        elif func_name == "DistExponential":
+            tau0 = priors_dict[name][0]
+
+            tau_prior = BoxUniform(
+                low= torch.tensor([tau0[0]], dtype=torch.float32),
+                high=torch.tensor([tau0[1]], dtype=torch.float32)
+                    )
+
+            list_o_priors.append(tau_prior)
+
+            if name in split_dict:
+                list_o_priors.append(tau_prior)
+
+                
+    print("Total priors added:", len(list_o_priors))
+    for i, p in enumerate(list_o_priors):
+        print([i], type(p))
+
+                
+    return MultipleIndependent(list_o_priors)
