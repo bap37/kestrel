@@ -355,7 +355,8 @@ def unspool_labels(list_of_parameter_names, dicts, latex_dict):
     Creates a set of labels for the parameters. Takes in your regular parameter names; outputs latex labels for everything. 
     """
     empty_list = []
-
+    high_flag = False
+    
     params_to_fit = parameter_generation(list_of_parameter_names, dicts)
     
     for name in params_to_fit:
