@@ -81,7 +81,7 @@ def build_layout(param_names, dicts):
 #######################
 
 def simulator(theta: torch.Tensor, layout, param_names, parameters_to_condition_on,
-              input_distribution, df, dicts, dfdata, is_split=False, debug=False):
+               df, df_tensor, dicts, dfdata, is_split, debug=False):
 
     #Unravel a bunch of necessary information
     bounds_dict, function_dict, split_dict, priors_dict = dicts
@@ -97,11 +97,7 @@ def simulator(theta: torch.Tensor, layout, param_names, parameters_to_condition_
     if is_split: ndim *= 2
     BAD_SIMULATION = torch.full((len(dfdata), ndim), float('nan'), device=device)
 
-    # Brodie Note - could improve...
-    df_tensor = {
-        col: torch.tensor(df[col].to_numpy(), dtype=torch.float32, device=device)
-        for col in list(priors_dict.keys())+splits+parameters_to_condition_on
-    }
+
 
     #Initialise weights
     N = len(df)
@@ -331,20 +327,27 @@ def preprocess_input_distribution(df, cols):
         for col in cols
     }
 
-def make_simulator(layout, df, param_names, parameters_to_condition_on, dicts, dfdata, is_split=False, debug=False):
+def make_simulator(layout, df, param_names, parameters_to_condition_on, dicts, dfdata, is_split, debug=False):
 
-    _, function_dict, split_dict, _ = dicts #only care about function_dict and split_dict here
+    _, function_dict, split_dict, priors_dict = dicts 
     
     validate_order(param_names, function_dict) #force correct parameter order
 
+    is_split = False
+    splits = list({v[0] for v in split_dict.values()}) #spools out split_dict parameters.
     if any(p in split_dict for p in param_names): #check early to see if we need to split anything. 
         is_split = True
-
+        print(f"Found a split in {split_dict.keys()}")
+        
     params_to_fit = parameter_generation(param_names, dicts)
-    input_distribution = preprocess_input_distribution(df, param_names)
 
+    df_tensor = {
+        col: torch.tensor(df[col].to_numpy(), dtype=torch.float32, )
+        for col in list(priors_dict.keys())+splits+parameters_to_condition_on
+    }
+    
     def simulator_with_input(theta):
-        return simulator(theta, layout, params_to_fit, parameters_to_condition_on, input_distribution, df, dicts, dfdata, is_split, debug)
+        return simulator(theta, layout, params_to_fit, parameters_to_condition_on, df, df_tensor, dicts, dfdata, is_split, debug)
 
     return simulator_with_input
 
@@ -368,6 +371,7 @@ def validate_order(param_names, function_dict):
     
     #Will need to add other functions in as they are implemented; make sure that Exponential is always last 
     order_priority = {
+        DistDoubleGaussian: 3,
         DistGaussian: 4,
         DistExponential: 5,
     }
@@ -479,10 +483,10 @@ def prior_generator(param_names, dicts):
 
             list_o_priors.extend([mu_prior, sigma_prior])
 
-
             if name in split_dict:
                 list_o_priors.extend([mu_prior, sigma_prior])
 
+                
         elif func_name == "DistExponential":
             tau0 = priors_dict[name][0]
 
@@ -495,6 +499,41 @@ def prior_generator(param_names, dicts):
 
             if name in split_dict:
                 list_o_priors.append(tau_prior)
+
+
+        if func_name == "DistDoubleGaussian":
+            mu1, sigma1, mu2, sigma2, a, need_positive = priors_dict[name]
+
+            mu1_prior = BoxUniform(
+                low= torch.tensor([mu1[0]], dtype=torch.float32), 
+                high=torch.tensor([mu1[1]], dtype=torch.float32)
+                )
+
+            sigma1_prior = BoxUniform(
+                low= torch.tensor([sigma1[0]], dtype=torch.float32),
+                high=torch.tensor([sigma1[1]], dtype=torch.float32)
+                )
+
+            mu2_prior = BoxUniform(
+                low= torch.tensor([mu2[0]], dtype=torch.float32), 
+                high=torch.tensor([mu2[1]], dtype=torch.float32)
+                )
+
+            sigma2_prior = BoxUniform(
+                low= torch.tensor([sigma2[0]], dtype=torch.float32),
+                high=torch.tensor([sigma2[1]], dtype=torch.float32)
+                )
+
+            a_prior = BoxUniform(
+                low= torch.tensor([a[0]], dtype=torch.float32),
+                high=torch.tensor([a[1]], dtype=torch.float32)
+                )
+            
+            
+            list_o_priors.extend([mu1_prior, sigma1_prior, mu2_prior, sigma2_prior, a_prior])
+
+            if name in split_dict:
+                list_o_priors.extend([mu1_prior, sigma1_prior, mu2_prior, sigma2_prior, a_prior])
 
                 
     print("Total priors added:", len(list_o_priors))

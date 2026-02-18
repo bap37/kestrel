@@ -69,11 +69,7 @@ def DistExponential(x, theta):
     # Compute importance weights
     weights = (lambda_target / lambda_proposal) * torch.exp(-(lambda_target - lambda_proposal) * x)
 
-
     return weights
-
-
-
 
 
 def DistDoubleGaussian(x, theta):
@@ -81,7 +77,7 @@ def DistDoubleGaussian(x, theta):
     Gaussian likelihood for batched θ.
 
     x:     Tensor of shape (N,) or (batch_size, N)
-    theta: Tensor of shape (batch_size, 2) -> [mu, sigma] for each θ
+    theta: Tensor of shape (batch_size, 2) -> [mu1, sigma1, mu2, sigma2, a] for each θ
 
     Returns:
         Tensor of shape (batch_size, N) -> likelihood of each x for each θ
@@ -124,4 +120,3 @@ def DistLogNormal(input_distribution, *params):
     mu, std = params
     probs = np.exp(mu + std*input_distribution)
     
-def DistDoubleGaussian(input_distribution, *params):
