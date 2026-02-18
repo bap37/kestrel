@@ -5,6 +5,7 @@ from sbi.utils import MultipleIndependent
 import torch
 import numpy as np
 from sbi.utils import BoxUniform
+from Functions import *
 
 #Create the layout function to describe input parameters theta
 
@@ -79,8 +80,8 @@ def build_layout(param_names, dicts):
 ## BEGIN SIMULATOR
 #######################
 
-def simulator(theta: torch.Tensor, layout, param_names,
-              input_distribution, df, dicts, dfdata, debug=False):
+def simulator(theta: torch.Tensor, layout, param_names, parameters_to_condition_on,
+              input_distribution, df, dicts, dfdata, is_split=False, debug=False):
 
     #Unravel a bunch of necessary information
     bounds_dict, function_dict, split_dict, priors_dict = dicts
@@ -92,8 +93,9 @@ def simulator(theta: torch.Tensor, layout, param_names,
     batch_size = theta.shape[0] ; device = theta.device
 
     #set up error catching for simulator
-    parameters_to_condition_on = ['c', 'mB']
-    BAD_SIMULATION = torch.full((len(dfdata), len(parameters_to_condition_on)), float('nan'), device=device)
+    ndim = len(parameters_to_condition_on)
+    if is_split: ndim *= 2
+    BAD_SIMULATION = torch.full((len(dfdata), ndim), float('nan'), device=device)
 
     # Brodie Note - could improve...
     df_tensor = {
@@ -282,7 +284,7 @@ def simulator(theta: torch.Tensor, layout, param_names,
 
     
     #Check if any of the model parameters are split; if so, proceed to offer chopped distributions. 
-    if any(p in split_dict for p in param_names):
+    if is_split:
 
         matching = [p for p in param_names if p in split_dict]
         name = matching[0]
@@ -329,17 +331,20 @@ def preprocess_input_distribution(df, cols):
         for col in cols
     }
 
-def make_simulator(layout, df, param_names, dicts, dfdata, debug=False):
+def make_simulator(layout, df, param_names, parameters_to_condition_on, dicts, dfdata, is_split=False, debug=False):
 
-    _, function_dict, _, _ = dicts #only care about function_dict here
+    _, function_dict, split_dict, _ = dicts #only care about function_dict and split_dict here
     
     validate_order(param_names, function_dict) #force correct parameter order
-    
+
+    if any(p in split_dict for p in param_names): #check early to see if we need to split anything. 
+        is_split = True
+
     params_to_fit = parameter_generation(param_names, dicts)
     input_distribution = preprocess_input_distribution(df, param_names)
 
     def simulator_with_input(theta):
-        return simulator(theta, layout, params_to_fit, input_distribution, df, dicts, dfdata, debug)
+        return simulator(theta, layout, params_to_fit, parameters_to_condition_on, input_distribution, df, dicts, dfdata, is_split, debug)
 
     return simulator_with_input
 
@@ -375,7 +380,7 @@ def validate_order(param_names, function_dict):
     return True
 
 
-def unspool_labels(list_of_parameter_names, dicts, latex_dict):
+def unspool_labels(list_of_parameter_names, dicts, latex_dict, function_dict):
     """
     Creates a set of labels for the parameters. Takes in your regular parameter names; outputs latex labels for everything. 
     """
@@ -419,6 +424,31 @@ def split_outputs(output_distribution, split_tensor, split_val, param_list):
         ])
 
     return torch.stack(out, dim=-1)
+
+
+def preprocess_data(param_names, parameters_to_condition_on, split_dict, dfdata, ):
+    
+    output_distribution = preprocess_input_distribution(dfdata, parameters_to_condition_on)
+    
+    matching = [p for p in param_names if p in split_dict]
+    name = matching[0]
+
+    split_param = split_dict[name][0]
+    split_val   = split_dict[name][1]
+
+    split_tensor = torch.tensor(
+        dfdata[split_param].to_numpy(),
+        dtype=torch.float32,
+        )
+
+    x = split_outputs(
+        output_distribution,
+        split_tensor,
+        split_val,
+        parameters_to_condition_on
+        )
+    
+    return x 
 
 ####################
 ## BEGIN PRIORS
