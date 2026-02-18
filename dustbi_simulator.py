@@ -126,28 +126,28 @@ def simulator(theta: torch.Tensor, layout, param_names, parameters_to_condition_
         #Start Split Logic
 
         if name in split_dict:
-            weights = torch.ones(batch_size, N, device=device) #initialise multiplicative weights
 
-            #figure out split name, location, information
-            split_param = split_dict[name][0] ; split_val   = split_dict[name][1] ; split_tensor = df_tensor[split_param]
+            split_param, split_val = split_dict[name]
+            split_tensor = df_tensor[split_param]
 
-            
-            if high_flag: #If "high" split, mask values above
+            if high_flag:
                 mask = split_tensor >= split_val
-            else:         #Else, below
+                high_flag = False
+            else:
                 mask = split_tensor < split_val
 
-                x_sub = x[mask]
+            weights = torch.ones(batch_size, N, device=device)
 
-                #Calculate importance sample for split only
-                density_sub = shape(x_sub, theta_g)  
-                density_sub = torch.clamp(density_sub, min=0.0)
+            x_sub = x[mask]
+            density_sub = shape(x_sub, theta_g)
+            density_sub = torch.clamp(density_sub, min=0.0)
 
-                if density_sub.ndim == 1:
-                    density_sub = density_sub.unsqueeze(0)
-                    weights[:, mask] = density_sub #Apply weights
+            if density_sub.ndim == 1:
+                density_sub = density_sub.unsqueeze(0)
 
-                    high_flag = False
+            weights[:, mask] = density_sub
+
+
 
         #If no split, treat as-normal.
         else:
@@ -187,33 +187,28 @@ def simulator(theta: torch.Tensor, layout, param_names, parameters_to_condition_
 
        ########################
         #Start Split Logic
-
         
         if name in split_dict:
 
-            weights = torch.ones(batch_size, N, device=device)
-
-            split_param = split_dict[name][0]
-            split_val   = split_dict[name][1]
-
+            split_param, split_val = split_dict[name]
             split_tensor = df_tensor[split_param]
 
             if high_flag:
                 mask = split_tensor >= split_val
+                high_flag = False
             else:
                 mask = split_tensor < split_val
 
-                x_sub = x[mask]
+            weights = torch.ones(batch_size, N, device=device)
 
-                density_sub = shape(x_sub, theta_e)  # or theta_e
-                density_sub = torch.clamp(density_sub, min=0.0)
+            x_sub = x[mask]
+            density_sub = shape(x_sub, theta_e)
+            density_sub = torch.clamp(density_sub, min=0.0)
 
-                if density_sub.ndim == 1:
-                    density_sub = density_sub.unsqueeze(0)
+            if density_sub.ndim == 1:
+                density_sub = density_sub.unsqueeze(0)
 
-                    weights[:, mask] = density_sub
-
-                    high_flag = False
+            weights[:, mask] = density_sub
 
                 
         else:
@@ -221,8 +216,6 @@ def simulator(theta: torch.Tensor, layout, param_names, parameters_to_condition_
             weights = density 
             weights = torch.clamp(weights, min=0.0)
         
-        
-        #density = shape(x, theta_e)
 
 
         if weights.ndim == 1: weights = weights.unsqueeze(0)  # shape = (1, N)
@@ -278,7 +271,7 @@ def simulator(theta: torch.Tensor, layout, param_names, parameters_to_condition_
         dft, parameters_to_condition_on
     )
 
-    
+
     #Check if any of the model parameters are split; if so, proceed to offer chopped distributions. 
     if is_split:
 
@@ -314,7 +307,6 @@ def simulator(theta: torch.Tensor, layout, param_names, parameters_to_condition_
         return dft
     
     return x
-
 
 
 #####################
@@ -433,25 +425,33 @@ def split_outputs(output_distribution, split_tensor, split_val, param_list):
 def preprocess_data(param_names, parameters_to_condition_on, split_dict, dfdata, ):
     
     output_distribution = preprocess_input_distribution(dfdata, parameters_to_condition_on)
+
+    if any(p in split_dict for p in param_names): #check early to see if we need to split anything. 
     
-    matching = [p for p in param_names if p in split_dict]
-    name = matching[0]
+        matching = [p for p in param_names if p in split_dict]
+        name = matching[0]
 
-    split_param = split_dict[name][0]
-    split_val   = split_dict[name][1]
+        split_param = split_dict[name][0]
+        split_val   = split_dict[name][1]
 
-    split_tensor = torch.tensor(
-        dfdata[split_param].to_numpy(),
-        dtype=torch.float32,
+        split_tensor = torch.tensor(
+            dfdata[split_param].to_numpy(),
+            dtype=torch.float32,
+            )
+
+        x = split_outputs(
+            output_distribution,
+            split_tensor,
+            split_val,
+            parameters_to_condition_on
+            )
+
+    else:
+        x = torch.stack(
+            [output_distribution[p] for p in parameters_to_condition_on],
+            dim=-1
         )
-
-    x = split_outputs(
-        output_distribution,
-        split_tensor,
-        split_val,
-        parameters_to_condition_on
-        )
-    
+        
     return x 
 
 ####################
