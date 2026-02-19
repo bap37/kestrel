@@ -452,7 +452,27 @@ def preprocess_data(param_names, parameters_to_condition_on, split_dict, dfdata,
             dim=-1
         )
         
-    return x 
+    return x
+
+def load_kestrel(filename):
+    
+    import ast
+    
+    with open(filename, 'r') as file:
+        raw_yaml = yaml.safe_load(file)
+
+    raw_yaml['param_names'] = raw_yaml['param_names'].split(" ")
+        
+    for entry in raw_yaml['Boundaries']:
+        raw_yaml['Boundaries'][entry] = tuple(raw_yaml['Boundaries'][entry])
+        
+    _priors = raw_yaml['Priors']
+    for entry in _priors:
+        for n in range(len(_priors[entry])):
+            raw_yaml['Priors'][entry][n] = ast.literal_eval(raw_yaml['Priors'][entry][n])
+            
+            
+    return raw_yaml
 
 ####################
 ## BEGIN PRIORS

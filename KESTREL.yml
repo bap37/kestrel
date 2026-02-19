@@ -1,0 +1,53 @@
+param_names:
+    SIM_c
+    SIM_RV
+    SIM_beta
+    SIM_EBV
+
+#########################
+# Dictionaries 
+#########################
+
+Boundaries:
+    SIM_c:    (-0.5,0.5) #A tuple containing the lower and upper bounds
+    SIM_RV:   (1.5, 5)
+    SIM_EBV:  (0,1)
+    SIM_beta: (0.5,4)
+
+Functions:
+    SIM_c:    DistGaussian  #The shape of this parameter.
+    SIM_RV:   DistGaussian
+    SIM_EBV:  DistExponential
+    SIM_beta: DistGaussian
+
+
+Splits:
+    SIM_RV:  ["HOST_LOGMASS", 10] #A list containing the split parameter and location
+    SIM_EBV: ['HOST_LOGMASS', 10]
+    SIM_c:   ['HOST_LOGMASS', 10]
+
+
+#split_dict = {}
+
+# We assume BoxUniform priors for our parameters; 
+# so each tuple needs to include the lower and upper bound you expect for that parameter. 
+# Gaussians are formatted as mu then sigma
+
+Priors:
+    SIM_c:    ["(-0.2, 0)", "(0.0, 0.1)"]
+    SIM_RV:   ["(1.5,4)", "(0,2)"]
+    SIM_EBV:  ["(0.05, 0.3)"]
+    SIM_beta: ["(0,3)", "(0,1)"]
+
+
+
+# Fancy latex labels for plotting. Add as you see fit. 
+Latex_Names:
+    DistExponential:  [r'$\tau$']
+    DistGaussian:     [r'$\mu$', r'$\sigma$']
+    SIM_c:            r"$c_{\rm int}$"
+    SIM_beta:         r"$\beta_{\rm int}$"
+    SIM_RV:           r"$R_V$"
+    SIM_EBV:          r"$EBV$"
+
+
