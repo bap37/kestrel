@@ -457,6 +457,7 @@ def preprocess_data(param_names, parameters_to_condition_on, split_dict, dfdata,
 def load_kestrel(filename):
     
     import ast
+    import yaml
     
     with open(filename, 'r') as file:
         raw_yaml = yaml.safe_load(file)
