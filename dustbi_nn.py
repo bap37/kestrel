@@ -1,12 +1,12 @@
 import torch
 import torch.nn.functional as F
-
+import torch.nn as nn
 from sbi import analysis as analysis
 from sbi.inference import SNPE
 from sbi.neural_nets import posterior_nn
 
 class PopulationEmbeddingFull(nn.Module):
-    def __init__(self, input_dim=ndim, hidden_dim=64, output_dim=32):
+    def __init__(self, input_dim=4, hidden_dim=64, output_dim=32):
         super().__init__()
         self.phi = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),

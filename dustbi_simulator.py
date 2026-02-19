@@ -472,8 +472,57 @@ def load_kestrel(filename):
         for n in range(len(_priors[entry])):
             raw_yaml['Priors'][entry][n] = ast.literal_eval(raw_yaml['Priors'][entry][n])
             
-            
     return raw_yaml
+
+def batched_simulator(theta_batch):
+    return torch.stack([simulatinator(theta) for theta in theta_batch])
+
+def load_data(simfilename, datfilename):
+
+    import numpy as np
+    import pandas as pd
+    df = pd.read_csv(simfilename, comment="#", sep='\s+')
+
+    df['SIM_EBV'] = df.SIM_AV/df.SIM_RV
+
+
+    dfdata = pd.read_csv(datfilename, 
+                             comment="#", sep=r'\s+')
+
+    dfdata = dfdata.loc[dfdata.IDSURVEY == 10]
+    dfdata = dfdata.loc[dfdata.PROB_SNNV19 >= 0.5]
+
+    return df, dfdata
+
+def train_model(n_sim, n_batch, sims_savename):
+    import os
+
+    batch_size = n_batch
+    num_simulations = n_sim
+    save_path = sims_savename
+
+    # If the file already exists, start fresh
+    if os.path.exists(save_path):
+        os.remove(save_path)
+        for start in range(0, num_simulations, batch_size):
+            current_bs = min(batch_size, num_simulations - start)
+
+            theta_batch = priors.sample((current_bs,))
+            x_batch = batched_simulator(theta_batch)
+            inference.append_simulations(theta_batch, x_batch)
+
+            if start == 0:
+                # First batch, create the file
+                torch.save({'theta': theta_batch, 'x': x_batch}, save_path)
+            else:
+                # Load existing data
+                data = torch.load(save_path)
+                data['theta'] = torch.cat([data['theta'], theta_batch], dim=0)
+                data['x'] = torch.cat([data['x'], x_batch], dim=0)
+                torch.save(data, save_path)
+                print(f"Appended {start + current_bs}/{num_simulations} simulations and saved incrementally.")
+    return print(f"All simulations saved incrementally to '{save_path}'")
+
 
 ####################
 ## BEGIN PRIORS
