@@ -4,6 +4,11 @@ param_names:
     SIM_beta
     SIM_EBV
 
+sim_parameters:
+    n_sim:   2000
+    n_batch: 200
+    simname: 'simulations.v1.pt'
+
 #########################
 # Dictionaries 
 #########################
@@ -22,9 +27,9 @@ Functions:
 
 
 Splits:
-    SIM_RV:  ["HOST_LOGMASS", 10] #A list containing the split parameter and location
+#    SIM_RV:  ["HOST_LOGMASS", 10] #A list containing the split parameter and location
     SIM_EBV: ['HOST_LOGMASS', 10]
-    SIM_c:   ['HOST_LOGMASS', 10]
+#    SIM_c:   ['HOST_LOGMASS', 10]
 
 
 #split_dict = {}
