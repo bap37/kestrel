@@ -474,9 +474,6 @@ def load_kestrel(filename):
             
     return raw_yaml
 
-def batched_simulator(theta_batch):
-    return torch.stack([simulatinator(theta) for theta in theta_batch])
-
 def load_data(simfilename, datfilename):
 
     import numpy as np
@@ -494,10 +491,13 @@ def load_data(simfilename, datfilename):
 
     return df, dfdata
 
-def train_model(n_sim, n_batch, sims_savename):
+def train_model(n_sim, n_batch, sims_savename, priors, simulatinator, inference):
     import os
     from tqdm import tqdm
 
+    def batched_simulator(theta_batch):
+        return torch.stack([simulatinator(theta) for theta in theta_batch])
+    
     batch_size = n_batch
     num_simulations = n_sim
     save_path = sims_savename
