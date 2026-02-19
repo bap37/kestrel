@@ -4,10 +4,14 @@ param_names:
     SIM_beta
     SIM_EBV
 
+parameters_to_condition_on:
+    ['c', 'mB', 'x1', 'zHD', 'cERR', 'mBERR', 'x1ERR']
+
 sim_parameters:
     n_sim:   2000
     n_batch: 200
     simname: 'simulations.v1.pt'
+
 
 #########################
 # Dictionaries 

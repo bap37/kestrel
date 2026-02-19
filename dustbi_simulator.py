@@ -496,6 +496,7 @@ def load_data(simfilename, datfilename):
 
 def train_model(n_sim, n_batch, sims_savename):
     import os
+    from tqdm import tqdm
 
     batch_size = n_batch
     num_simulations = n_sim
@@ -504,6 +505,8 @@ def train_model(n_sim, n_batch, sims_savename):
     # If the file already exists, start fresh
     if os.path.exists(save_path):
         os.remove(save_path)
+
+    with tqdm(total=num_simulations, desc="Running simulations", unit="sim") as pbar:
         for start in range(0, num_simulations, batch_size):
             current_bs = min(batch_size, num_simulations - start)
 
@@ -520,8 +523,12 @@ def train_model(n_sim, n_batch, sims_savename):
                 data['theta'] = torch.cat([data['theta'], theta_batch], dim=0)
                 data['x'] = torch.cat([data['x'], x_batch], dim=0)
                 torch.save(data, save_path)
-                print(f"Appended {start + current_bs}/{num_simulations} simulations and saved incrementally.")
-    return print(f"All simulations saved incrementally to '{save_path}'")
+
+            # Update progress bar
+            pbar.update(current_bs)
+            pbar.set_postfix(saved=start + current_bs)
+
+    print(f"All simulations saved incrementally to '{save_path}'")
 
 
 ####################
