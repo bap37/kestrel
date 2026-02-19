@@ -490,7 +490,7 @@ def prior_generator(param_names, dicts):
 
         func_name = function_dict[name].__name__        
         if func_name == "DistGaussian":
-            mu0, sigma0, need_positive = priors_dict[name]
+            mu0, sigma0 = priors_dict[name]
 
             mu_prior = BoxUniform(
                 low= torch.tensor([mu0[0]], dtype=torch.float32), 
