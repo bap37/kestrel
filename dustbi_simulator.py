@@ -520,10 +520,15 @@ def load_data(simfilename, datfilename):
 def train_model(n_sim, n_batch, sims_savename, priors, simulatinator, inference):
     import os
     from tqdm import tqdm
-
-    def batched_simulator(theta_batch):
-        return torch.stack([simulatinator(theta) for theta in theta_batch])
+    from joblib import Parallel, delayed
     
+    def batched_simulator(theta_batch):
+        results = Parallel(n_jobs=-1)(
+            delayed(simulatinator)(theta)
+            for theta in theta_batch
+            )
+        return torch.stack(results)
+
     batch_size = n_batch
     num_simulations = n_sim
     save_path = sims_savename
@@ -573,7 +578,6 @@ def start_distance(NUM_WARMUP = 50, NUM_SAMPLES = 150, NUM_CHAINS = 1):
 
     nuts_kernel = NUTS(
         distancinator,
-        jit_compile=True,
         init_strategy=init_to_median(),
         max_tree_depth=10
         )
