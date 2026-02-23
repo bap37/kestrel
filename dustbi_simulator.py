@@ -491,7 +491,7 @@ def load_kestrel(filename):
     raw_yaml['param_names'] = raw_yaml['param_names'].split(" ")
         
     for entry in raw_yaml['Boundaries']:
-        raw_yaml['Boundaries'][entry] = tuple(raw_yaml['Boundaries'][entry])
+        raw_yaml['Boundaries'][entry] = ast.literal_eval(raw_yaml['Boundaries'][entry])
         
     _priors = raw_yaml['Priors']
     for entry in _priors:
