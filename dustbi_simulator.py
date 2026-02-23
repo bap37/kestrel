@@ -507,11 +507,15 @@ def load_data(simfilename, datfilename):
     df = pd.read_csv(simfilename, comment="#", sep='\s+')
 
     df['SIM_EBV'] = df.SIM_AV/df.SIM_RV
+    df['MU'] = Planck18.distmod(df.zHD.values).value
 
 
+    
     dfdata = pd.read_csv(datfilename, 
                              comment="#", sep=r'\s+')
+    dfdata['MU'] = Planck18.distmod(dfdata.zHD.values).value
 
+    
     dfdata = dfdata.loc[dfdata.IDSURVEY == 10]
     dfdata = dfdata.loc[dfdata.PROB_SNNV19 >= 0.5]
 
