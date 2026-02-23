@@ -502,6 +502,7 @@ def load_kestrel(filename):
 
 def load_data(simfilename, datfilename):
 
+    from astropy.cosmology import Planck18
     import numpy as np
     import pandas as pd
     df = pd.read_csv(simfilename, comment="#", sep='\s+')
