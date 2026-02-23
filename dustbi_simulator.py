@@ -6,6 +6,10 @@ import torch
 import numpy as np
 from sbi.utils import BoxUniform
 from Functions import *
+import pyro
+import pyro.distributions as dist
+from pyro.infer import MCMC, NUTS
+from pyro.infer.autoguide.initialization import init_to_median
 
 #Create the layout function to describe input parameters theta
 
@@ -88,6 +92,8 @@ def simulator(theta: torch.Tensor, layout, param_names, parameters_to_condition_
     high_flag = True #Set split flag early in case we need to keep track of parameters in split_dict
     splits = list({v[0] for v in split_dict.values()}) #spools out split_dict parameters.
 
+    salt_mcmc = start_distance()
+    
     #torch dimensionality nonsense 
     if theta.ndim == 1: theta = theta.unsqueeze(0)
     batch_size = theta.shape[0] ; device = theta.device
@@ -96,8 +102,6 @@ def simulator(theta: torch.Tensor, layout, param_names, parameters_to_condition_
     ndim = len(parameters_to_condition_on)
     if is_split: ndim *= 2
     BAD_SIMULATION = torch.full((len(dfdata), ndim), float('nan'), device=device)
-
-
 
     #Initialise weights
     N = len(df)
@@ -240,6 +244,7 @@ def simulator(theta: torch.Tensor, layout, param_names, parameters_to_condition_
 
     #Catch any shizwizz and return a bad simulation
     if weight_sum == 0:
+        print("ERROR: weight_sum = 0 for", theta)
         return BAD_SIMULATION
 
     normalized_weights = joint_weights / weight_sum
@@ -261,15 +266,34 @@ def simulator(theta: torch.Tensor, layout, param_names, parameters_to_condition_
     try:
         dft = dft.sample(n=len(dfdata))
     except ValueError:
+        print("ERROR: not enough SNe for", theta)
         return BAD_SIMULATION #If there's not enough samples left, it's a bad simulation. 
+
+    # --------------------------------------------------
+    # Add distance into here
+    # --------------------------------------------------
+
+    output_distribution = preprocess_input_distribution(
+        dft, parameters_to_condition_on+['x0', 'x0ERR', 'MU']
+    )
+    
+    salt_mcmc.run(
+        output_distribution['x0'],
+        output_distribution['x0ERR'],
+        output_distribution['x1'],
+        output_distribution['x1ERR'],
+        output_distribution['c'],
+        output_distribution['cERR'],
+        output_distribution['MU']
+        )
+
+    MURES = add_distance(salt_mcmc, output_distribution)
+    output_distribution['MURES'] = MURES
+    
     
     # --------------------------------------------------
     # Final Processing 
     # --------------------------------------------------
-    
-    output_distribution = preprocess_input_distribution(
-        dft, parameters_to_condition_on
-    )
 
 
     #Check if any of the model parameters are split; if so, proceed to offer chopped distributions. 
@@ -304,6 +328,7 @@ def simulator(theta: torch.Tensor, layout, param_names, parameters_to_condition_
     
     #debug flag will helpfully return a pandas dataframe containing your desired distribution
     if debug:
+        dft['MURES'] = MURES
         return dft
     
     return x
@@ -321,7 +346,7 @@ def preprocess_input_distribution(df, cols):
 
 def make_simulator(layout, df, param_names, parameters_to_condition_on, dicts, dfdata, is_split, debug=False):
 
-    _, function_dict, split_dict, priors_dict = dicts 
+    _, function_dict, split_dict, priors_dict = dicts
     
     validate_order(param_names, function_dict) #force correct parameter order
 
@@ -454,6 +479,7 @@ def preprocess_data(param_names, parameters_to_condition_on, split_dict, dfdata,
         
     return x
 
+
 def load_kestrel(filename):
     
     import ast
@@ -530,6 +556,64 @@ def train_model(n_sim, n_batch, sims_savename, priors, simulatinator, inference)
 
     print(f"All simulations saved incrementally to '{save_path}'")
 
+def add_distance(mcmc, df_tensor):
+    
+    x1_obs = df_tensor['x1'] ; c_obs = df_tensor['c'] ; mB_obs = df_tensor['mB']
+    
+    nuisance = mcmc.get_samples()
+    beta = nuisance['beta'].mean() ; alpha = nuisance['alpha'].mean() ; M0 = nuisance['M'].mean()
+    
+    correction = alpha * x1_obs - beta * c_obs - M0
+        
+    MURES = df_tensor['MU'] - correction
+    
+    return  MURES
+    
+def start_distance(NUM_WARMUP = 50, NUM_SAMPLES = 150, NUM_CHAINS = 1):
+
+    nuts_kernel = NUTS(
+        distancinator,
+        jit_compile=True,
+        init_strategy=init_to_median(),
+        max_tree_depth=10
+        )
+    
+    salt_mcmc = MCMC(
+        nuts_kernel,
+        warmup_steps=NUM_WARMUP,
+        num_samples=NUM_SAMPLES,
+        num_chains=NUM_CHAINS
+    )
+    
+    return salt_mcmc
+
+def distancinator(x0_obs, x0_err, x1_obs, x1_err, c_obs, c_err, dist_mod):
+
+    n = dist_mod.shape[0]
+
+    alpha = pyro.sample("alpha", dist.Normal(0.1, 1.0))
+    beta = pyro.sample("beta", dist.Normal(2.0, 3.0))
+    M = pyro.sample("M", dist.Uniform(-21.5, -17.0))
+    sigma_int = pyro.sample("sigma_int", dist.HalfNormal(0.3))
+
+    with pyro.plate("sne", n):
+        log10_x0 = pyro.sample("log10_x0", dist.Normal(-3.0, 2.0))
+        x0_true = torch.pow(10.0, log10_x0)
+
+        pyro.sample("x0_obs",
+                    dist.Normal(x0_true, x0_err),
+                    obs=x0_obs)
+
+        correction = alpha * x1_obs - beta * c_obs - M
+
+        mag_err = (2.5 / torch.log(torch.tensor(10.0))) * (x0_err / x0_true)
+        total_err = torch.sqrt(mag_err**2 + sigma_int**2 + x1_err**2 + c_err**2)
+
+        mean_mag = -2.5 * torch.log10(x0_true) + 10.635 + correction
+        
+        pyro.sample("cosmo",
+                    dist.Normal(mean_mag, total_err),
+                    obs=dist_mod)
 
 ####################
 ## BEGIN PRIORS
