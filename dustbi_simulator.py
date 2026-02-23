@@ -101,7 +101,7 @@ def simulator(theta: torch.Tensor, layout, param_names, parameters_to_condition_
     #set up error catching for simulator
     ndim = len(parameters_to_condition_on)
     if is_split: ndim *= 2
-    BAD_SIMULATION = torch.full((len(dfdata), ndim), float('nan'), device=device)
+    BAD_SIMULATION = torch.full((len(dfdata), ndim+1), float('nan'), device=device)
 
     #Initialise weights
     N = len(df)
@@ -295,6 +295,7 @@ def simulator(theta: torch.Tensor, layout, param_names, parameters_to_condition_
     # Final Processing 
     # --------------------------------------------------
 
+    parameters_to_condition_on = parameters_to_condition_on+['MURES']
 
     #Check if any of the model parameters are split; if so, proceed to offer chopped distributions. 
     if is_split:
