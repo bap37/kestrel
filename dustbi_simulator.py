@@ -574,7 +574,7 @@ def add_distance(mcmc, df_tensor):
     nuisance = mcmc.get_samples()
     beta = nuisance['beta'].mean() ; alpha = nuisance['alpha'].mean() ; M0 = nuisance['M'].mean()
     
-    correction = alpha * x1_obs - beta * c_obs - M0
+    correction = alpha * x1_obs - beta * c_obs - M0 + mB
         
     MURES = df_tensor['MU'] - correction
     
