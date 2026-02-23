@@ -99,9 +99,9 @@ def simulator(theta: torch.Tensor, layout, param_names, parameters_to_condition_
     batch_size = theta.shape[0] ; device = theta.device
 
     #set up error catching for simulator
-    ndim = len(parameters_to_condition_on)
-    if is_split: ndim *= 2
-    BAD_SIMULATION = torch.full((len(dfdata), ndim+1), float('nan'), device=device)
+    numdim = len(parameters_to_condition_on)+1
+    if is_split: numdim *= 2
+    BAD_SIMULATION = torch.full((len(dfdata), numdim), float('nan'), device=device)
 
     #Initialise weights
     N = len(df)
