@@ -345,7 +345,7 @@ def preprocess_input_distribution(df, cols):
         for col in cols
     }
 
-def make_simulator(layout, df, param_names, parameters_to_condition_on, dicts, dfdata, is_split, debug=False):
+def make_simulator(layout, df, param_names, parameters_to_condition_on, dicts, dfdata, is_split, debug=False, device="cpu"):
 
     _, function_dict, split_dict, priors_dict = dicts
     
@@ -360,17 +360,17 @@ def make_simulator(layout, df, param_names, parameters_to_condition_on, dicts, d
     params_to_fit = parameter_generation(param_names, dicts)
 
     df_tensor = {
-        col: torch.tensor(df[col].to_numpy(), dtype=torch.float32, )
+        col: torch.tensor(df[col].to_numpy(), dtype=torch.float32, device=device)
         for col in list(priors_dict.keys())+splits+parameters_to_condition_on
     }
-    
+
     def simulator_with_input(theta):
         return simulator(theta, layout, params_to_fit, parameters_to_condition_on, df, df_tensor, dicts, dfdata, is_split, debug)
 
     return simulator_with_input
 
 def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
-                           dicts, dfdata, sub_batch=10):
+                           dicts, dfdata, sub_batch=10, device="cpu"):
     bounds_dict, function_dict, split_dict, priors_dict = dicts
     validate_order(param_names, function_dict)
     params_to_fit = parameter_generation(param_names, dicts)
@@ -382,7 +382,7 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
     # Pre-compute ALL tensor columns ONCE
     all_cols = list(set(list(priors_dict.keys()) + splits + parameters_to_condition_on))
     df_tensor = {
-        col: torch.tensor(df[col].to_numpy(), dtype=torch.float32)
+        col: torch.tensor(df[col].to_numpy(), dtype=torch.float32, device=device)
         for col in all_cols
     }
 

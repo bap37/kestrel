@@ -111,13 +111,13 @@ if __name__ == "__main__":
     df, dfdata = load_data(simfilename, datfilename)
 
     simulatinator = make_simulator(layout, df, param_names,
-                                   parameters_to_condition_on, dicts, dfdata, is_split=True)
+                                   parameters_to_condition_on, dicts, dfdata, is_split=True, device=device)
 
     simulation_wrapper = process_simulator(simulatinator, prior, prior_returns_numpy)
     check_sbi_inputs(simulation_wrapper, prior)
 
     batched_sim = make_batched_simulator(layout, df, param_names,
-                                         parameters_to_condition_on, dicts, dfdata)
+                                         parameters_to_condition_on, dicts, dfdata, device=device)
 
     if args.SIMULATE:
         print(f"Training {n_sim} simulations and saving to {sims_savename}")
