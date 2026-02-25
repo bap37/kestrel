@@ -1,15 +1,14 @@
 from dataclasses import dataclass
 import torch
-from torch.distributions import Normal, LogNormal, Exponential
+#from torch.distributions import Normal, LogNormal, Exponential
 from sbi.utils import MultipleIndependent
-import torch
 import numpy as np
 from sbi.utils import BoxUniform
 from Functions import *
-import pyro
-import pyro.distributions as dist
-from pyro.infer import MCMC, NUTS
-from pyro.infer.autoguide.initialization import init_to_median
+#import pyro
+#import pyro.distributions as dist
+#from pyro.infer import MCMC, NUTS
+#from pyro.infer.autoguide.initialization import init_to_median
 
 #Create the layout function to describe input parameters theta
 
