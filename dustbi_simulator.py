@@ -747,27 +747,27 @@ def distancinator(x0_obs, x0_err, x1_obs, x1_err, c_obs, c_err, dist_mod):
 ## BEGIN PRIORS
 ######################
 
-def prior_generator(param_names, dicts):
+def prior_generator(param_names, dicts, device="cpu"):
 
     bounds_dict, function_dict, split_dict, priors_dict = dicts
     list_o_priors = []
-    
+
     for name in param_names:
         if "_HIGH_" in name:
             name = name.split("_HIGH_")[0]
 
-        func_name = function_dict[name].__name__        
+        func_name = function_dict[name].__name__
         if func_name == "DistGaussian":
             mu0, sigma0 = priors_dict[name]
 
             mu_prior = BoxUniform(
-                low= torch.tensor([mu0[0]], dtype=torch.float32), 
-                high=torch.tensor([mu0[1]], dtype=torch.float32)
+                low= torch.tensor([mu0[0]], dtype=torch.float32, device=device),
+                high=torch.tensor([mu0[1]], dtype=torch.float32, device=device)
                 )
 
             sigma_prior = BoxUniform(
-                low= torch.tensor([sigma0[0]], dtype=torch.float32),
-                high=torch.tensor([sigma0[1]], dtype=torch.float32)
+                low= torch.tensor([sigma0[0]], dtype=torch.float32, device=device),
+                high=torch.tensor([sigma0[1]], dtype=torch.float32, device=device)
                 )
 
             list_o_priors.extend([mu_prior, sigma_prior])
@@ -775,13 +775,13 @@ def prior_generator(param_names, dicts):
             if name in split_dict:
                 list_o_priors.extend([mu_prior, sigma_prior])
 
-                
+
         elif func_name == "DistExponential":
             tau0 = priors_dict[name][0]
 
             tau_prior = BoxUniform(
-                low= torch.tensor([tau0[0]], dtype=torch.float32),
-                high=torch.tensor([tau0[1]], dtype=torch.float32)
+                low= torch.tensor([tau0[0]], dtype=torch.float32, device=device),
+                high=torch.tensor([tau0[1]], dtype=torch.float32, device=device)
                     )
 
             list_o_priors.append(tau_prior)
@@ -794,31 +794,31 @@ def prior_generator(param_names, dicts):
             mu1, sigma1, mu2, sigma2, a, need_positive = priors_dict[name]
 
             mu1_prior = BoxUniform(
-                low= torch.tensor([mu1[0]], dtype=torch.float32), 
-                high=torch.tensor([mu1[1]], dtype=torch.float32)
+                low= torch.tensor([mu1[0]], dtype=torch.float32, device=device),
+                high=torch.tensor([mu1[1]], dtype=torch.float32, device=device)
                 )
 
             sigma1_prior = BoxUniform(
-                low= torch.tensor([sigma1[0]], dtype=torch.float32),
-                high=torch.tensor([sigma1[1]], dtype=torch.float32)
+                low= torch.tensor([sigma1[0]], dtype=torch.float32, device=device),
+                high=torch.tensor([sigma1[1]], dtype=torch.float32, device=device)
                 )
 
             mu2_prior = BoxUniform(
-                low= torch.tensor([mu2[0]], dtype=torch.float32), 
-                high=torch.tensor([mu2[1]], dtype=torch.float32)
+                low= torch.tensor([mu2[0]], dtype=torch.float32, device=device),
+                high=torch.tensor([mu2[1]], dtype=torch.float32, device=device)
                 )
 
             sigma2_prior = BoxUniform(
-                low= torch.tensor([sigma2[0]], dtype=torch.float32),
-                high=torch.tensor([sigma2[1]], dtype=torch.float32)
+                low= torch.tensor([sigma2[0]], dtype=torch.float32, device=device),
+                high=torch.tensor([sigma2[1]], dtype=torch.float32, device=device)
                 )
 
             a_prior = BoxUniform(
-                low= torch.tensor([a[0]], dtype=torch.float32),
-                high=torch.tensor([a[1]], dtype=torch.float32)
+                low= torch.tensor([a[0]], dtype=torch.float32, device=device),
+                high=torch.tensor([a[1]], dtype=torch.float32, device=device)
                 )
-            
-            
+
+
             list_o_priors.extend([mu1_prior, sigma1_prior, mu2_prior, sigma2_prior, a_prior])
 
             if name in split_dict:

@@ -48,22 +48,22 @@ dicts = [infos['Boundaries'], function_dict, infos['Splits'], infos['Priors']]
 
 ##############################
 # Load information and setup
+device = "cuda" if torch.cuda.is_available() else "cpu"
 
 param_names = infos['param_names']
 
 params_to_fit = parameter_generation(param_names, dicts)
-priors = prior_generator(param_names, dicts)
+priors = prior_generator(param_names, dicts, device=device)
 
 layout = build_layout(params_to_fit, dicts)
 
 ndim = len(parameters_to_condition_on)
-if any(p in infos['Splits'] for p in param_names): #check early to see if we need to split anything. 
+if any(p in infos['Splits'] for p in param_names): #check early to see if we need to split anything.
     ndim *= 2
 print(f"The NN will be trained on a {ndim}-dimensional space.")
 
 ###############
 #Do some quick checks and establish density estimator and inference pipelines.
-device = "cuda" if torch.cuda.is_available() else "cpu"
 prior, num_parameters, prior_returns_numpy = process_prior(priors)
 
 density_estimator = posterior_nn(
