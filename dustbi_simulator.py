@@ -656,9 +656,8 @@ def train_model(n_sim, n_batch, sims_savename, priors, simulator, inference, dev
     num_simulations = n_sim
     save_path = sims_savename
 
-    # If the file already exists, start fresh
-    if os.path.exists(save_path):
-        os.remove(save_path)
+    all_theta = []
+    all_x = []
 
     with tqdm(total=num_simulations, desc="Running simulations", unit="sim") as pbar:
         for start in range(0, num_simulations, batch_size):
@@ -668,21 +667,13 @@ def train_model(n_sim, n_batch, sims_savename, priors, simulator, inference, dev
             x_batch = simulator(theta_batch)
             inference.append_simulations(theta_batch, x_batch)
 
-            if start == 0:
-                # First batch, create the file
-                torch.save({'theta': theta_batch, 'x': x_batch}, save_path)
-            else:
-                # Load existing data
-                data = torch.load(save_path)
-                data['theta'] = torch.cat([data['theta'], theta_batch], dim=0)
-                data['x'] = torch.cat([data['x'], x_batch], dim=0)
-                torch.save(data, save_path)
+            all_theta.append(theta_batch)
+            all_x.append(x_batch)
 
-            # Update progress bar
             pbar.update(current_bs)
-            pbar.set_postfix(saved=start + current_bs)
 
-    print(f"All simulations saved incrementally to '{save_path}'")
+    torch.save({'theta': torch.cat(all_theta), 'x': torch.cat(all_x)}, save_path)
+    print(f"All {num_simulations} simulations saved to '{save_path}'")
 
 def add_distance(mcmc, df_tensor):
     
