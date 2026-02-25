@@ -830,4 +830,4 @@ def prior_generator(param_names, dicts, device="cpu"):
         print([i], type(p))
 
                 
-    return MultipleIndependent(list_o_priors)
+    return MultipleIndependent(list_o_priors, device=device)
