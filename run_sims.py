@@ -24,8 +24,8 @@ from sbi import analysis as analysis
 from sbi.utils import MultipleIndependent
 
 
-simfilename = '/scratch/midway2/rkessler/PIPPIN_OUTPUT/BP-DES5YR-DUST2DUST/2_LCFIT/D_DES_DUST2DUST/output/PIP_BP-DES5YR-DUST2DUST_DES_DUST2DUST/FITOPT000.FITRES.gz'
-datfilename = '/scratch/midway2/rkessler/PIPPIN_OUTPUT/D5YR_DOV_ANALYSIS/5_MERGE/MERGE_Dsys_DATADES_SIM/output/PIP_D5YR_DOV_SIM_NOMINAL_DATADESSIM_IA-0001/FITOPT000.FITRES.gz'
+simfilename = 'INPUT_DES5YR_D2D.FITRES'
+datfilename = 'SIMS_FOR_TESTING/FITOPT000.FITRES.gz'
 
 infos = load_kestrel("KESTREL.yml")
 
@@ -42,6 +42,8 @@ function_dict = {
     "SIM_beta": DistGaussian,
 }
 
+infos['Splits'] = {}
+    
 dicts = [infos['Boundaries'], function_dict, infos['Splits'], infos['Priors']]
 
 ##############################

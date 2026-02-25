@@ -92,14 +92,15 @@ def simulator(theta: torch.Tensor, layout, param_names, parameters_to_condition_
     high_flag = True #Set split flag early in case we need to keep track of parameters in split_dict
     splits = list({v[0] for v in split_dict.values()}) #spools out split_dict parameters.
 
-    salt_mcmc = start_distance()
+    #BRODIE
+    #salt_mcmc = start_distance()
     
     #torch dimensionality nonsense 
     if theta.ndim == 1: theta = theta.unsqueeze(0)
     batch_size = theta.shape[0] ; device = theta.device
 
     #set up error catching for simulator
-    numdim = len(parameters_to_condition_on)+1
+    numdim = len(parameters_to_condition_on)#+1 BRODIE 
     if is_split: numdim *= 2
     BAD_SIMULATION = torch.full((len(dfdata), numdim), float('nan'), device=device)
 
@@ -244,7 +245,7 @@ def simulator(theta: torch.Tensor, layout, param_names, parameters_to_condition_
 
     #Catch any shizwizz and return a bad simulation
     if weight_sum == 0:
-        print("ERROR: weight_sum = 0 for", theta)
+        if debug: print("ERROR: weight_sum = 0 for", theta)
         return BAD_SIMULATION
 
     normalized_weights = joint_weights / weight_sum
@@ -266,7 +267,7 @@ def simulator(theta: torch.Tensor, layout, param_names, parameters_to_condition_
     try:
         dft = dft.sample(n=len(dfdata))
     except ValueError:
-        print("ERROR: not enough SNe for", theta)
+        if debug: print("ERROR: not enough SNe for", theta)
         return BAD_SIMULATION #If there's not enough samples left, it's a bad simulation. 
 
     # --------------------------------------------------
@@ -274,28 +275,28 @@ def simulator(theta: torch.Tensor, layout, param_names, parameters_to_condition_
     # --------------------------------------------------
 
     output_distribution = preprocess_input_distribution(
-        dft, parameters_to_condition_on+['x0', 'x0ERR', 'MU']
+        dft, parameters_to_condition_on#+['x0', 'x0ERR', 'MU']
     )
-    
-    salt_mcmc.run(
-        output_distribution['x0'],
-        output_distribution['x0ERR'],
-        output_distribution['x1'],
-        output_distribution['x1ERR'],
-        output_distribution['c'],
-        output_distribution['cERR'],
-        output_distribution['MU']
-        )
+    #BRODIE
+    #salt_mcmc.run(
+    #    output_distribution['x0'],
+    #    output_distribution['x0ERR'],
+    #    output_distribution['x1'],
+    #    output_distribution['x1ERR'],
+    #    output_distribution['c'],
+    #    output_distribution['cERR'],
+    #    output_distribution['MU']
+    #    )
 
-    MURES = add_distance(salt_mcmc, output_distribution)
-    output_distribution['MURES'] = MURES
+    #MURES = add_distance(salt_mcmc, output_distribution)
+    #output_distribution['MURES'] = MURES
     
     
     # --------------------------------------------------
     # Final Processing 
     # --------------------------------------------------
 
-    parameters_to_condition_on = parameters_to_condition_on+['MURES']
+    #parameters_to_condition_on = parameters_to_condition_on+['MURES']
 
     #Check if any of the model parameters are split; if so, proceed to offer chopped distributions. 
     if is_split:
@@ -329,7 +330,7 @@ def simulator(theta: torch.Tensor, layout, param_names, parameters_to_condition_
     
     #debug flag will helpfully return a pandas dataframe containing your desired distribution
     if debug:
-        dft['MURES'] = MURES
+        #dft['MURES'] = MURES
         return dft
     
     return x
@@ -523,18 +524,52 @@ def load_data(simfilename, datfilename):
 
     return df, dfdata
 
+def standardise_data(df, dfdata, parameters_to_condition_on):
+
+    import numpy as np
+
+    for param in parameters_to_condition_on:
+
+        #Data
+        meanval = np.mean(dfdata[param].values)
+        stdval  = np.std(dfdata[param].values)
+        dfdata[param] = (dfdata[param] - meanval)/stdval
+
+        #sim
+        meanval = np.mean(dft[param].values)
+        stdval  = np.std(dft[param].values)
+        dft[param] = (dft[param] - meanval)/stdval
+
+        #Repeat for errors:
+        param_err = param+"ERR"
+        dfdata[param_err] = np.log(dfdata[param_err].values)
+        meanval = np.mean(dfdata[param_err].values)
+        stdval  = np.std(dfdata[param_err].values)
+        dfdata[param_err] = (dfdata[param_err] - meanval)/stdval
+        
+        dft[param_err] = np.log(dft[param_err].values)
+        meanval = np.mean(dft[param_err].values)
+        stdval  = np.std(dft[param_err].values)
+        dft[param_err] = (dft[param_err] - meanval)/stdval
+        
+    return df, dfdata
+
 def train_model(n_sim, n_batch, sims_savename, priors, simulatinator, inference):
     import os
     from tqdm import tqdm
     from joblib import Parallel, delayed
-    
-    def batched_simulator(theta_batch):
-        results = Parallel(n_jobs=-1)(
-            delayed(simulatinator)(theta)
-            for theta in theta_batch
-            )
-        return torch.stack(results)
 
+    #BRODIE 
+    #def batched_simulator(theta_batch):
+    #    results = Parallel(n_jobs=-1)(
+    #        delayed(simulatinator)(theta)
+    #        for theta in theta_batch
+    #        )
+    #    return torch.stack(results)
+
+    def batched_simulator(theta_batch):
+        return torch.stack([simulatinator(theta) for theta in theta_batch])
+    
     batch_size = n_batch
     num_simulations = n_sim
     save_path = sims_savename
@@ -592,7 +627,8 @@ def start_distance(NUM_WARMUP = 50, NUM_SAMPLES = 150, NUM_CHAINS = 1):
         nuts_kernel,
         warmup_steps=NUM_WARMUP,
         num_samples=NUM_SAMPLES,
-        num_chains=NUM_CHAINS
+        num_chains=NUM_CHAINS,
+        disable_progbar=True,
     )
     
     return salt_mcmc
