@@ -11,6 +11,7 @@ sim_parameters:
     n_sim:   2000
     n_batch: 200
     simname: 'simulations.v1.pt'
+    posteriorname: 'posterior.pt'
 
 
 #########################

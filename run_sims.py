@@ -63,16 +63,18 @@ print(f"The NN will be trained on a {ndim}-dimensional space.")
 
 ###############
 #Do some quick checks and establish density estimator and inference pipelines.
+device = "cuda" if torch.cuda.is_available() else "cpu"
 prior, num_parameters, prior_returns_numpy = process_prior(priors)
 
 density_estimator = posterior_nn(
-    model="nsf", #switch to nsf if interested 
+    model="nsf", #switch to nsf if interested
     embedding_net=PopulationEmbeddingFull(input_dim=ndim)
 )
 
 inference = SNPE(
     prior=priors,
-    density_estimator=density_estimator, 
+    density_estimator=density_estimator,
+    device=device,
 )
 
 def get_args():
@@ -84,16 +86,16 @@ def get_args():
     Enables importance sample simulator to generate simulations for the training of the network. \n
     Is boolean. \n
     Please configure the specific batch sizes and total number of simulations in KESTREL.yml"""
-    parser.add_argument("--SIMULATE", help=msg, type=bool, default=False)
+    parser.add_argument("--SIMULATE", help=msg, action="store_true")
     
     msg = """
     Set to toggle training process for the SBI network. \n
     Is boolean. \n
     Specifics on the network are in this file."""
-    parser.add_argument("--TRAIN", help=msg, type=bool, default=False)
+    parser.add_argument("--TRAIN", help=msg, action="store_true")
     
     msg = "Default False. Prints a nice bird :)"
-    parser.add_argument("--BIRD", help = msg, type=bool, default=False)
+    parser.add_argument("--BIRD", help=msg, action="store_true")
 
 
     args = parser.parse_args()
@@ -108,15 +110,18 @@ if __name__ == "__main__":
 
     df, dfdata = load_data(simfilename, datfilename)
 
-    simulatinator = make_simulator(layout, df, param_names, 
+    simulatinator = make_simulator(layout, df, param_names,
                                    parameters_to_condition_on, dicts, dfdata, is_split=True)
 
     simulation_wrapper = process_simulator(simulatinator, prior, prior_returns_numpy)
     check_sbi_inputs(simulation_wrapper, prior)
 
+    batched_sim = make_batched_simulator(layout, df, param_names,
+                                         parameters_to_condition_on, dicts, dfdata)
+
     if args.SIMULATE:
         print(f"Training {n_sim} simulations and saving to {sims_savename}")
-        train_model(n_sim, n_batch, sims_savename, priors, simulatinator, inference)
+        train_model(n_sim, n_batch, sims_savename, priors, batched_sim, inference, device)
         print("Quitting after simulation stage.")
         quit()
     ################
