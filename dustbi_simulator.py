@@ -618,35 +618,33 @@ def load_data(simfilename, datfilename):
 
     return df, dfdata
 
-def standardise_data(df, dfdata, parameters_to_condition_on):
+def standardise_data(dft, dfdata, parameters_to_condition_on):
 
     import numpy as np
 
     for param in parameters_to_condition_on:
-
-        #Data
-        meanval = np.mean(dfdata[param].values)
-        stdval  = np.std(dfdata[param].values)
-        dfdata[param] = (dfdata[param] - meanval)/stdval
-
-        #sim
-        meanval = np.mean(dft[param].values)
-        stdval  = np.std(dft[param].values)
-        dft[param] = (dft[param] - meanval)/stdval
-
-        #Repeat for errors:
-        param_err = param+"ERR"
-        dfdata[param_err] = np.log(dfdata[param_err].values)
-        meanval = np.mean(dfdata[param_err].values)
-        stdval  = np.std(dfdata[param_err].values)
-        dfdata[param_err] = (dfdata[param_err] - meanval)/stdval
+        if "ERR" in param:
+            dfdata[param] = np.log(dfdata[param].values)
+            meanval = np.mean(dfdata[param].values)
+            stdval  = np.std(dfdata[param].values)
+            dfdata[param] = (dfdata[param] - meanval)/stdval
         
-        dft[param_err] = np.log(dft[param_err].values)
-        meanval = np.mean(dft[param_err].values)
-        stdval  = np.std(dft[param_err].values)
-        dft[param_err] = (dft[param_err] - meanval)/stdval
+            dft[param] = np.log(dft[param].values)
+            meanval = np.mean(dft[param].values)
+            stdval  = np.std(dft[param].values)
+            dft[param] = (dft[param] - meanval)/stdval
+        else:
+            #Data
+            meanval = np.mean(dfdata[param].values)
+            stdval  = np.std(dfdata[param].values)
+            dfdata[param] = (dfdata[param] - meanval)/stdval
+
+            #sim
+            meanval = np.mean(dft[param].values)
+            stdval  = np.std(dft[param].values)
+            dft[param] = (dft[param] - meanval)/stdval
         
-    return df, dfdata
+    return dft, dfdata
 
 def train_model(n_sim, n_batch, sims_savename, priors, simulator, inference, device="cpu"):
     import os

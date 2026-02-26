@@ -110,6 +110,8 @@ if __name__ == "__main__":
 
     df, dfdata = load_data(simfilename, datfilename)
 
+    df, dfdata = standardise_data(df, dfdata, parameters_to_condition_on)
+
     simulatinator = make_simulator(layout, df, param_names,
                                    parameters_to_condition_on, dicts, dfdata, is_split=True, device=device)
 
