@@ -23,6 +23,17 @@ from sbi.neural_nets import posterior_nn
 from sbi import analysis as analysis
 from sbi.utils import MultipleIndependent
 
+def add_distance(df_tensor):
+    
+    x1_obs = df_tensor['x1'] ; c_obs = df_tensor['c'] ; mB_obs = df_tensor['mB']
+    
+    beta = 3.1 ; alpha = 0.16 ; M0 = -19.3
+    
+    correction = alpha * x1_obs - beta * c_obs + M0 + mB_obs
+        
+    MURES = df_tensor['MU'] - correction
+    
+    return  MURES
 
 simfilename = 'INPUT_DES5YR_D2D.FITRES'
 datfilename = 'SIMS_FOR_TESTING/FITOPT000.FITRES.gz'
@@ -57,8 +68,8 @@ priors = prior_generator(param_names, dicts)
 layout = build_layout(params_to_fit, dicts)
 
 ndim = len(parameters_to_condition_on)
-if any(p in infos['Splits'] for p in param_names): #check early to see if we need to split anything. 
-    ndim *= 2
+#if any(p in infos['Splits'] for p in param_names): #check early to see if we need to split anything. 
+#    ndim *= 2
 print(f"The NN will be trained on a {ndim}-dimensional space.")
 
 ###############
@@ -108,31 +119,44 @@ if __name__ == "__main__":
 
     df, dfdata = load_data(simfilename, datfilename)
 
-    df, dfdata = standardise_data(df, dfdata, parameters_to_condition_on)
+    print("Adding 'broad' MURES now. ")
+    
+    output_distribution = preprocess_input_distribution(
+    df, parameters_to_condition_on[:-1]+['x0', 'x0ERR', 'MU'])
+
+    MURES_SIMS = add_distance(output_distribution)
+    df['MURES'] = MURES_SIMS
+
+    output_distribution = preprocess_input_distribution(
+    dfdata, parameters_to_condition_on[:-1]+['x0', 'x0ERR', 'MU'])
+
+    MURES_DATA = add_distance(output_distribution)
+    dfdata['MURES'] = MURES_DATA
+
+    print("We are temporarily not standardising data.")
+    #df, dfdata = standardise_data(df, dfdata, parameters_to_condition_on)
 
     simulatinator = make_simulator(layout, df, param_names, 
-                                   parameters_to_condition_on, dicts, dfdata, is_split=True)
+                                   parameters_to_condition_on, dicts, dfdata, is_split=False)
 
     simulation_wrapper = process_simulator(simulatinator, prior, prior_returns_numpy)
     check_sbi_inputs(simulation_wrapper, prior)
 
     if args.SIMULATE:
         print(f"Training {n_sim} simulations and saving to {sims_savename}")
-        train_model(n_sim, n_batch, sims_savename, priors, simulatinator, inference)
+        simulate_model(n_sim, n_batch, sims_savename, priors, simulatinator, inference)
         print("Quitting after simulation stage.")
         quit()
     ################
-    if os.path.exists(sims_savename):
+    if os.path.exists(sims_savename) & args.TRAIN:
         data = torch.load(sims_savename)
         theta_batch = data["theta"]
         x_batch = data["x"]
-
     else:
         print(f"I've not detected {sims_savename} anywhere. Is this intentional?")
         quit()
     ################
     if args.TRAIN:
-        print(f"Not enabled yet")
         inference.append_simulations(theta_batch, x_batch)
         density_estimator = inference.train(validation_fraction=0.1)
         print("\n inferred successfully")

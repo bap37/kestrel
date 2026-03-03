@@ -5,10 +5,10 @@ param_names:
     SIM_EBV
 
 parameters_to_condition_on:
-    ['c', 'mB', 'x1', 'zHD', 'cERR', 'mBERR', 'x1ERR', 'MU']
+    ['c', 'mB', 'x1', 'zHD', 'cERR', 'mBERR', 'x1ERR', 'MU', 'HOST_LOGMASS', 'MURES']
 
 sim_parameters:
-    n_sim:   10000
+    n_sim:   20000
     n_batch: 200
     simname: 'simulations_v2.pt'
     posteriorname: 'posterior.v2.pt'
@@ -31,8 +31,8 @@ Functions:
 
 
 Splits:
-#    SIM_RV:  ["HOST_LOGMASS", 10] #A list containing the split parameter and location
-#    SIM_EBV: ['HOST_LOGMASS', 10]
+    SIM_RV:  ["HOST_LOGMASS", 10] #A list containing the split parameter and location
+    SIM_EBV: ['HOST_LOGMASS', 10]
 #    SIM_c:   ['HOST_LOGMASS', 10]
 
 
@@ -41,10 +41,10 @@ Splits:
 # Gaussians are formatted as mu then sigma
 
 Priors:
-    SIM_c:    ["(-.2, 0)", "(0.02, 0.1)"]
+    SIM_c:    ["(-.1, 0)", "(0.02, 0.1)"]
     SIM_RV:   ["(1.5,4)", "(0.5,2)"]
     SIM_EBV:  ["(0.05, 0.5)"]
-    SIM_beta: ["(2.06, 2.08)", "(0.21, 0.23)"]
+    SIM_beta: ["(1,2)", "(0.05, 0.3)"]
 
 
 
@@ -56,5 +56,6 @@ Latex_Names:
     SIM_beta:         r"$\beta_{\rm int}$"
     SIM_RV:           r"$R_V$"
     SIM_EBV:          r"$EBV$"
+    SIM_x1:           r"$x_1$"
 
 
