@@ -1,7 +1,10 @@
 from dustbi_simulator import *
 from Functions import *
+from dustbi_bigdata import *
 from dustbi_nn import PopulationEmbeddingFull
 import yaml, os, argparse
+import pickle
+from torch.utils.data import DataLoader
 
 #cosmology imports
 from astropy.cosmology import Planck18
@@ -35,7 +38,7 @@ def add_distance(df_tensor):
     
     return  MURES
 
-simfilename = 'INPUT_DES5YR_D2D.FITRES'
+simfilename = 'SIM_BANK_SB.FITRES.gz'
 datfilename = 'SIMS_FOR_TESTING/FITOPT000.FITRES.gz'
 
 infos = load_kestrel("KESTREL.yml")
@@ -51,9 +54,8 @@ function_dict = {
     "SIM_RV"  : DistGaussian,
     "SIM_EBV" : DistExponential,
     "SIM_beta": DistGaussian,
+    "SIM_x1"  : DistGaussian,
 }
-
-infos['Splits'] = {}
     
 dicts = [infos['Boundaries'], function_dict, infos['Splits'], infos['Priors']]
 
@@ -70,7 +72,7 @@ layout = build_layout(params_to_fit, dicts)
 ndim = len(parameters_to_condition_on)
 #if any(p in infos['Splits'] for p in param_names): #check early to see if we need to split anything. 
 #    ndim *= 2
-print(f"The NN will be trained on a {ndim}-dimensional space.")
+print(f"The NN will be trained on a {ndim}-dimensional space, on {param_names}")
 
 ###############
 #Do some quick checks and establish density estimator and inference pipelines.
@@ -157,8 +159,10 @@ if __name__ == "__main__":
         quit()
     ################
     if args.TRAIN:
+
         inference.append_simulations(theta_batch, x_batch)
         density_estimator = inference.train(validation_fraction=0.1)
         print("\n inferred successfully")
         posterior = inference.build_posterior(density_estimator)
-        torch.save(posterior, posterior_savename)
+        with open(posterior_savename, "wb") as handle:
+            pickle.dump(posterior, handle)

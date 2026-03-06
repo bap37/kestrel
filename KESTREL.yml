@@ -1,7 +1,7 @@
 param_names:
     SIM_c
     SIM_RV
-    SIM_beta
+    SIM_x1
     SIM_EBV
 
 parameters_to_condition_on:
@@ -10,7 +10,7 @@ parameters_to_condition_on:
 sim_parameters:
     n_sim:   20000
     n_batch: 200
-    simname: 'simulations_v2.pt'
+    simname: 'simulations_v2_part2.pt'
     posteriorname: 'posterior.v2.pt'
 
 #########################
@@ -22,12 +22,14 @@ Boundaries:
     SIM_RV:   (1.5, 5)
     SIM_EBV:  (0,1)
     SIM_beta: (0.5,4)
+    SIM_x1:   (-5, 5)
 
 Functions:
     SIM_c:    DistGaussian  #The shape of this parameter.
     SIM_RV:   DistGaussian
     SIM_EBV:  DistExponential
     SIM_beta: DistGaussian
+    SIM_x1:   DistGaussian
 
 
 Splits:
@@ -45,6 +47,7 @@ Priors:
     SIM_RV:   ["(1.5,4)", "(0.5,2)"]
     SIM_EBV:  ["(0.05, 0.5)"]
     SIM_beta: ["(1,2)", "(0.05, 0.3)"]
+    SIM_x1:   ["(-2,2)", "(0.2, 1)"]
 
 
 
