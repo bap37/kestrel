@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 import torch
-#from torch.distributions import Normal, LogNormal, Exponential
+from torch.distributions import Normal, LogNormal, Exponential, HalfNormal
 from sbi.utils import MultipleIndependent
 import numpy as np
 from sbi.utils import BoxUniform
@@ -69,7 +69,7 @@ def build_layout(param_names, dicts):
         if   "DistGaussian"    == str(funcname): n_gauss += 1 ; 
         elif "Exponential"     in str(funcname): n_exp   += 1 ;
         elif "LogNormal"       in str(funcname): n_lognormal += 1;
-        elif "Double"          in str(funcname): n_double_gaussian = 0
+        elif "Double"          in str(funcname): n_double_gaussian +1;
         #Add_Function_Key
     
     layout = build_theta_layout(n_gauss=n_gauss, n_exp=n_exp, 
@@ -91,7 +91,6 @@ def simulator(theta: torch.Tensor, layout, param_names, parameters_to_condition_
     high_flag = True #Set split flag early in case we need to keep track of parameters in split_dict
     splits = list({v[0] for v in split_dict.values()}) #spools out split_dict parameters.
 
-    #BRODIE
     #salt_mcmc = start_distance()
     
     #torch dimensionality nonsense 
@@ -298,6 +297,7 @@ def simulator(theta: torch.Tensor, layout, param_names, parameters_to_condition_
     #parameters_to_condition_on = parameters_to_condition_on+['MURES']
 
     #Check if any of the model parameters are split; if so, proceed to offer chopped distributions. 
+    
     if is_split:
 
         matching = [p for p in param_names if p in split_dict]
@@ -351,12 +351,10 @@ def make_simulator(layout, df, param_names, parameters_to_condition_on, dicts, d
     
     validate_order(param_names, function_dict) #force correct parameter order
 
-    is_split = False
     splits = list({v[0] for v in split_dict.values()}) #spools out split_dict parameters.
-    if any(p in split_dict for p in param_names): #check early to see if we need to split anything. 
-        is_split = True
+    if is_split:
         print(f"Found a split in {split_dict.keys()}")
-        
+
     params_to_fit = parameter_generation(param_names, dicts)
 
     df_tensor = {
@@ -618,8 +616,10 @@ def load_data(simfilename, datfilename):
 
     return df, dfdata
 
-def standardise_data(dft, dfdata, parameters_to_condition_on):
+def standardise_data(dft, dfdata, parameters_to_condition_on, param_names):
 
+    return_dict = {}
+    
     import numpy as np
 
     for param in parameters_to_condition_on:
@@ -628,25 +628,41 @@ def standardise_data(dft, dfdata, parameters_to_condition_on):
             meanval = np.mean(dfdata[param].values)
             stdval  = np.std(dfdata[param].values)
             dfdata[param] = (dfdata[param] - meanval)/stdval
-        
+
+            return_dict[param+"_data"] = [meanval, stdval]
+            
             dft[param] = np.log(dft[param].values)
             meanval = np.mean(dft[param].values)
             stdval  = np.std(dft[param].values)
             dft[param] = (dft[param] - meanval)/stdval
+
+            return_dict[param+"_sim"] = [meanval, stdval]
         else:
             #Data
             meanval = np.mean(dfdata[param].values)
             stdval  = np.std(dfdata[param].values)
             dfdata[param] = (dfdata[param] - meanval)/stdval
 
+            return_dict[param+"_data"] = [meanval, stdval]
+
             #sim
             meanval = np.mean(dft[param].values)
             stdval  = np.std(dft[param].values)
             dft[param] = (dft[param] - meanval)/stdval
-        
-    return dft, dfdata
 
-def train_model(n_sim, n_batch, sims_savename, priors, simulator, inference, device="cpu"):
+            return_dict[param+"_sim"] = [meanval, stdval]
+
+        #Repeat once to standardise input parameters; only applies to the sims
+        for param in param_names:
+            meanval = np.mean(dft[param].values)
+            stdval  = np.std(dft[param].values)
+            dft[param] = (dft[param] - meanval)/stdval
+
+            return_dict[param+"_sim"] = [meanval, stdval]
+
+    return dft, dfdata, return_dict
+
+def simulate_model(n_sim, n_batch, sims_savename, priors, simulator, inference, device="cpu", batched=True):
     import os
     from tqdm import tqdm
 
@@ -662,7 +678,10 @@ def train_model(n_sim, n_batch, sims_savename, priors, simulator, inference, dev
             current_bs = min(batch_size, num_simulations - start)
 
             theta_batch = priors.sample((current_bs,)).to(device)
-            x_batch = simulator(theta_batch)
+            if batched:
+                x_batch = simulator(theta_batch)
+            else:
+                x_batch = torch.stack([simulator(t) for t in theta_batch])
             inference.append_simulations(theta_batch, x_batch)
 
             all_theta.append(theta_batch)
@@ -672,6 +691,41 @@ def train_model(n_sim, n_batch, sims_savename, priors, simulator, inference, dev
 
     torch.save({'theta': torch.cat(all_theta), 'x': torch.cat(all_x)}, save_path)
     print(f"All {num_simulations} simulations saved to '{save_path}'")
+
+def train_spne(prior, x):
+
+    from sbi.inference import SNPE, simulate_for_sbi
+    from sbi.utils import process_prior
+
+    num_rounds = 5
+    num_simulations = 500
+
+    proposal = prior
+
+    for round in range(num_rounds):
+
+        theta, x_sim = simulate_for_sbi(
+            batched_simulator,
+            proposal,
+            num_simulations=num_simulations,
+            )
+
+        inference = inference.append_simulations(theta, x_sim, proposal=proposal)
+
+        density_estimator = inference.train()
+
+        posterior = inference.build_posterior(density_estimator)
+
+        proposal = posterior.set_default_x(x)
+    
+    return posterior
+    
+
+##########################
+# MURES Calculation code
+# (Currently unused)
+##########################
+
 
 def add_distance(mcmc, df_tensor):
     
@@ -746,21 +800,11 @@ def prior_generator(param_names, dicts, device="cpu"):
             name = name.split("_HIGH_")[0]
 
         func_name = function_dict[name].__name__
+
         if func_name == "DistGaussian":
             mu0, sigma0 = priors_dict[name]
-
-            mu_prior = BoxUniform(
-                low= torch.tensor([mu0[0]], dtype=torch.float32, device=device),
-                high=torch.tensor([mu0[1]], dtype=torch.float32, device=device)
-                )
-
-            sigma_prior = BoxUniform(
-                low= torch.tensor([sigma0[0]], dtype=torch.float32, device=device),
-                high=torch.tensor([sigma0[1]], dtype=torch.float32, device=device)
-                )
-
+            mu_prior, sigma_prior = TwoDBoxPrior(mu0, sigma0, device=device)
             list_o_priors.extend([mu_prior, sigma_prior])
-
             if name in split_dict:
                 list_o_priors.extend([mu_prior, sigma_prior])
 
@@ -772,7 +816,7 @@ def prior_generator(param_names, dicts, device="cpu"):
                 low= torch.tensor([tau0[0]], dtype=torch.float32, device=device),
                 high=torch.tensor([tau0[1]], dtype=torch.float32, device=device)
                     )
-
+            
             list_o_priors.append(tau_prior)
 
             if name in split_dict:
@@ -820,3 +864,39 @@ def prior_generator(param_names, dicts, device="cpu"):
 
                 
     return MultipleIndependent(list_o_priors, device=device)
+
+
+def TwoDBoxPrior(param_1, param_2, device="cpu"):
+    """
+    General wrapper for any distribution with two parameters.
+    """
+
+    p1_prior = BoxUniform(
+        low= torch.tensor([param_1[0]], dtype=torch.float32, device=device),
+        high=torch.tensor([param_1[1]], dtype=torch.float32, device=device)
+        )
+
+    p2_prior = BoxUniform(
+        low= torch.tensor([param_2[0]], dtype=torch.float32, device=device),
+        high=torch.tensor([param_2[1]], dtype=torch.float32, device=device)
+        )
+
+    return p1_prior, p2_prior
+
+
+def TwoDGaussianPrior(param_1, param_2, device="cpu"):
+    """
+    theta[0] ~ mean value, error on mean value
+    theta[1] ~ standard deviation of the Gaussian
+    """
+
+    p1_prior = Normal(
+        loc=torch.tensor(param_1[0], dtype=torch.float32, device=device),
+        scale=torch.tensor(param_1[1], dtype=torch.float32, device=device),
+    )
+
+    p2_prior = HalfNormal(
+        scale=torch.tensor(param_2[0], dtype=torch.float32, device=device),
+    )
+
+    return p1_prior, p2_prior

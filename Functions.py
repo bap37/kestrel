@@ -60,7 +60,8 @@ def DistExponential(x, theta):
 
     tau = theta[:, 0].unsqueeze(1)      # (batch_size, 1)\
     
-    tau_proposal = x.mean(dim=1, keepdim=True)
+    #tau_proposal = x.mean(dim=1, keepdim=True)
+    tau_proposal = 0.5 #Hard coded to 0.5 right now on account of selection effects.
     
     # Convert tau to lambda
     lambda_target = 1.0 / tau
