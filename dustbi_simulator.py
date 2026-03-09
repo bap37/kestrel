@@ -11,6 +11,7 @@ from Functions import *
 #from pyro.infer.autoguide.initialization import init_to_median
 
 #Create the layout function to describe input parameters theta
+from dataclasses import dataclass
 
 @dataclass
 class ThetaLayout:
@@ -18,6 +19,7 @@ class ThetaLayout:
     idx: dict
     counts: dict
     n_params: dict
+    order: dict
 
 def build_theta_layout(counts, n_params):
 
@@ -32,11 +34,21 @@ def build_theta_layout(counts, n_params):
 
     return slices
 
+    
 def build_layout(param_names, dicts):
 
     bounds_dict, function_dict, split_dict, priors_dict = dicts
 
     idx = {
+        "gauss": [],
+        "exp": [],
+        "lognormal": [],
+        "double_gaussian": [],
+        "linear": [],
+        "stepwise": [],
+    }
+
+    order = {
         "gauss": [],
         "exp": [],
         "lognormal": [],
@@ -52,21 +64,27 @@ def build_layout(param_names, dicts):
 
         if funcname == "DistGaussian":
             idx["gauss"].append(i)
+            order["gauss"].append(name)
 
         elif "Exponential" in funcname:
             idx["exp"].append(i)
+            order["exp"].append(name)
 
         elif "LogNormal" in funcname:
             idx["lognormal"].append(i)
+            order["lognormal"].append(name)
 
         elif "Double" in funcname:
             idx["double_gaussian"].append(i)
+            order["double_gaussian"].append(name)
 
         elif "Linear" in funcname:
             idx["linear"].append(i)
+            order["linear"].append(name)
 
         elif "Stepwise" in funcname:
             idx["stepwise"].append(i)
+            order["stepwise"].append(name)
 
     counts = {k: len(v) for k, v in idx.items()}
 
@@ -85,9 +103,9 @@ def build_layout(param_names, dicts):
         slices=slices,
         idx=idx,
         counts=counts,
-        n_params=n_params
-    )
-    
+        n_params=n_params,
+        order=order
+    )    
 
 #######################
 ## BEGIN SIMULATOR
@@ -360,6 +378,7 @@ def make_batched_simulator_old(layout, df, param_names, parameters_to_condition_
 
         return result
 
+
 def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
                            dicts, dfdata, sub_batch=10, device="cpu"):
     bounds_dict, function_dict, split_dict, priors_dict = dicts
@@ -402,9 +421,9 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
             theta_dist = theta_dist.view(B, layout.counts[dist], n_param)
 
             for i in range(layout.counts[dist]):
-                param_index = layout.idx[dist][i]
-                name = param_names[param_index]
-                print(param_index, name)
+                name = layout.order[dist][i]
+
+                
                 if "_HIGH_" in name:
                     name = name.split("_HIGH_")[0]
                     high_flag = True
@@ -482,6 +501,8 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
 
     return batched_simulator
 
+
+    
 def parameter_generation(list_of_parameter_names, dicts):
     
     empty_list = []
