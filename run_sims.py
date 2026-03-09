@@ -1,29 +1,27 @@
 from dustbi_simulator import *
 from Functions import *
-from dustbi_bigdata import *
 from dustbi_nn import PopulationEmbeddingFull
 import yaml, os, argparse
 import pickle
-from torch.utils.data import DataLoader
 
 #cosmology imports
 from astropy.cosmology import Planck18
-import astropy.units as u
+#import astropy.units as u
 
 # sbi and torch imports
-from sbi import utils as utils
-from sbi.inference import NPE, simulate_for_sbi
+#from sbi import utils as utils
+#from sbi.inference import NPE, simulate_for_sbi
 from sbi.utils.user_input_checks import (
     check_sbi_inputs,
     process_prior,
     process_simulator,
 )
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
+#import torch.nn as nn
+#import torch.nn.functional as F
 from sbi.inference import SNPE
 from sbi.neural_nets import posterior_nn
-from sbi import analysis as analysis
+#from sbi import analysis as analysis
 from sbi.utils import MultipleIndependent
 
 def add_distance(df_tensor):
@@ -61,17 +59,19 @@ dicts = [infos['Boundaries'], function_dict, infos['Splits'], infos['Priors']]
 
 ##############################
 # Load information and setup
+device = "cuda" if torch.cuda.is_available() else "cpu"
 
 param_names = infos['param_names']
 
 params_to_fit = parameter_generation(param_names, dicts)
-priors = prior_generator(param_names, dicts)
+priors = prior_generator(param_names, dicts, device=device)
 
 layout = build_layout(params_to_fit, dicts)
 
 ndim = len(parameters_to_condition_on)
-#if any(p in infos['Splits'] for p in param_names): #check early to see if we need to split anything. 
-#    ndim *= 2
+has_splits = any(p in infos['Splits'] for p in param_names)
+if has_splits:
+    ndim *= 2
 print(f"The NN will be trained on a {ndim}-dimensional space, on {param_names}")
 
 ###############
@@ -79,13 +79,14 @@ print(f"The NN will be trained on a {ndim}-dimensional space, on {param_names}")
 prior, num_parameters, prior_returns_numpy = process_prior(priors)
 
 density_estimator = posterior_nn(
-    model="nsf", #switch to nsf if interested 
+    model="nsf", #switch to nsf if interested
     embedding_net=PopulationEmbeddingFull(input_dim=ndim)
 )
 
 inference = SNPE(
     prior=priors,
-    density_estimator=density_estimator, 
+    density_estimator=density_estimator,
+    device=device,
 )
 
 def get_args():
@@ -97,16 +98,16 @@ def get_args():
     Enables importance sample simulator to generate simulations for the training of the network. \n
     Is boolean. \n
     Please configure the specific batch sizes and total number of simulations in KESTREL.yml"""
-    parser.add_argument("--SIMULATE", help=msg, type=bool, default=False)
+    parser.add_argument("--SIMULATE", help=msg, action="store_true")
     
     msg = """
     Set to toggle training process for the SBI network. \n
     Is boolean. \n
     Specifics on the network are in this file."""
-    parser.add_argument("--TRAIN", help=msg, type=bool, default=False)
+    parser.add_argument("--TRAIN", help=msg, action="store_true")
     
     msg = "Default False. Prints a nice bird :)"
-    parser.add_argument("--BIRD", help = msg, type=bool, default=False)
+    parser.add_argument("--BIRD", help=msg, action="store_true")
 
 
     args = parser.parse_args()
@@ -138,15 +139,25 @@ if __name__ == "__main__":
     print("We are temporarily not standardising data.")
     #df, dfdata = standardise_data(df, dfdata, parameters_to_condition_on)
 
-    simulatinator = make_simulator(layout, df, param_names, 
-                                   parameters_to_condition_on, dicts, dfdata, is_split=False)
+    simulatinator = make_simulator(layout, df, param_names,
+                                   parameters_to_condition_on, dicts, dfdata, is_split=has_splits, device=device)
 
     simulation_wrapper = process_simulator(simulatinator, prior, prior_returns_numpy)
     check_sbi_inputs(simulation_wrapper, prior)
 
+    if has_splits:
+        # Splits on: use single-theta simulator wrapped per-theta
+        sim_for_training = simulatinator
+        batched = False
+    else:
+        # Splits off: use fast vectorized batched simulator
+        sim_for_training = make_batched_simulator(layout, df, param_names,
+                                                   parameters_to_condition_on, dicts, dfdata, device=device)
+        batched = True
+
     if args.SIMULATE:
         print(f"Training {n_sim} simulations and saving to {sims_savename}")
-        simulate_model(n_sim, n_batch, sims_savename, priors, simulatinator, inference)
+        simulate_model(n_sim, n_batch, sims_savename, priors, sim_for_training, inference, device=device, batched=batched)
         print("Quitting after simulation stage.")
         quit()
     ################

@@ -2,14 +2,13 @@ from dataclasses import dataclass
 import torch
 from torch.distributions import Normal, LogNormal, Exponential, HalfNormal
 from sbi.utils import MultipleIndependent
-import torch
 import numpy as np
 from sbi.utils import BoxUniform
 from Functions import *
-import pyro
-import pyro.distributions as dist
-from pyro.infer import MCMC, NUTS
-from pyro.infer.autoguide.initialization import init_to_median
+#import pyro
+#import pyro.distributions as dist
+#from pyro.infer import MCMC, NUTS
+#from pyro.infer.autoguide.initialization import init_to_median
 
 #Create the layout function to describe input parameters theta
 
@@ -92,8 +91,6 @@ def simulator(theta: torch.Tensor, layout, param_names, parameters_to_condition_
     high_flag = True #Set split flag early in case we need to keep track of parameters in split_dict
     splits = list({v[0] for v in split_dict.values()}) #spools out split_dict parameters.
 
-    #BRODIE
-    is_split = False
     #salt_mcmc = start_distance()
     
     #torch dimensionality nonsense 
@@ -348,29 +345,122 @@ def preprocess_input_distribution(df, cols):
         for col in cols
     }
 
-def make_simulator(layout, df, param_names, parameters_to_condition_on, dicts, dfdata, is_split, debug=False):
+def make_simulator(layout, df, param_names, parameters_to_condition_on, dicts, dfdata, is_split, debug=False, device="cpu"):
 
     _, function_dict, split_dict, priors_dict = dicts
     
     validate_order(param_names, function_dict) #force correct parameter order
 
-    is_split = False
     splits = list({v[0] for v in split_dict.values()}) #spools out split_dict parameters.
-    if any(p in split_dict for p in param_names): #check early to see if we need to split anything. 
-        is_split = True
+    if is_split:
         print(f"Found a split in {split_dict.keys()}")
-        
+
     params_to_fit = parameter_generation(param_names, dicts)
 
     df_tensor = {
-        col: torch.tensor(df[col].to_numpy(), dtype=torch.float32, )
+        col: torch.tensor(df[col].to_numpy(), dtype=torch.float32, device=device)
         for col in list(priors_dict.keys())+splits+parameters_to_condition_on
     }
-    
+
     def simulator_with_input(theta):
         return simulator(theta, layout, params_to_fit, parameters_to_condition_on, df, df_tensor, dicts, dfdata, is_split, debug)
 
     return simulator_with_input
+
+def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
+                           dicts, dfdata, sub_batch=10, device="cpu"):
+    bounds_dict, function_dict, split_dict, priors_dict = dicts
+    validate_order(param_names, function_dict)
+    params_to_fit = parameter_generation(param_names, dicts)
+
+    splits = list({v[0] for v in split_dict.values()})
+    if any(p in split_dict for p in param_names):
+        raise NotImplementedError("make_batched_simulator does not support split parameters yet")
+
+    # Pre-compute ALL tensor columns ONCE
+    all_cols = list(set(list(priors_dict.keys()) + splits + parameters_to_condition_on))
+    df_tensor = {
+        col: torch.tensor(df[col].to_numpy(), dtype=torch.float32, device=device)
+        for col in all_cols
+    }
+
+    # Pre-stack output columns for fast batched indexing
+    output_stack = torch.stack(
+        [df_tensor[col] for col in parameters_to_condition_on], dim=-1
+    )  # (N, n_features)
+
+    N = len(df)
+    n_target = len(dfdata)
+
+    def _simulate_sub_batch(theta):
+        """Fully batched: theta is (B, n_params), returns (B, n_target, n_features)."""
+        if theta.ndim == 1:
+            theta = theta.unsqueeze(0)
+        B = theta.shape[0]
+        device = theta.device
+
+        joint_weights = torch.ones(B, N, device=device)
+
+        # --- Gaussian parameters (batched across all B thetas) ---
+        gauss_theta = theta[:, layout.gauss].view(B, layout.n_gauss, 2)
+
+        for i in range(layout.n_gauss):
+            name = params_to_fit[i]
+            if "_HIGH_" in name:
+                name = name.split("_HIGH_")[0]
+
+            density = function_dict[name](df_tensor[name], gauss_theta[:, i, :])
+            joint_weights *= torch.clamp(density, min=0.0)
+
+        # --- Exponential parameters (batched across all B thetas) ---
+        exp_theta = theta[:, layout.exp]
+
+        for i in range(exp_theta.shape[1]):
+            name = params_to_fit[layout.n_gauss + i]
+            if "_HIGH_" in name:
+                name = name.split("_HIGH_")[0]
+
+            density = function_dict[name](df_tensor[name], exp_theta[:, i:i+1])
+            joint_weights *= torch.clamp(density, min=0.0)
+
+        # --- Normalise ---
+        weight_sum = joint_weights.sum(dim=1, keepdim=True)  # (B, 1)
+        bad_mask = (weight_sum.squeeze(1) == 0)
+
+        joint_weights[bad_mask] = 1.0
+        weight_sum = torch.where(weight_sum == 0, torch.tensor(float(N)), weight_sum)
+        normalized_weights = joint_weights / weight_sum
+
+        # --- ESS check: mark low-ESS draws as bad ---
+        ess = 1.0 / torch.sum(normalized_weights ** 2, dim=1)  # (B,)
+        bad_mask = bad_mask | (ess < n_target)
+
+        # --- Batched multinomial: draw n_target samples per theta ---
+        resampled_idx = torch.multinomial(
+            normalized_weights, num_samples=n_target, replacement=True
+        )  # (B, n_target)
+
+        # --- Batched output tensor indexing ---
+        result = output_stack[resampled_idx]  # (B, n_target, n_features)
+
+        # --- Fill bad simulations with NaN ---
+        result[bad_mask] = float('nan')
+
+        return result
+
+    def batched_simulator(theta_batch):
+        """Process theta_batch in sub-batches to control memory."""
+        B = theta_batch.shape[0]
+        if B <= sub_batch:
+            return _simulate_sub_batch(theta_batch)
+
+        results = []
+        for start in range(0, B, sub_batch):
+            end = min(start + sub_batch, B)
+            results.append(_simulate_sub_batch(theta_batch[start:end]))
+        return torch.cat(results, dim=0)
+
+    return batched_simulator
 
 def parameter_generation(list_of_parameter_names, dicts):
     
@@ -562,63 +652,45 @@ def standardise_data(dft, dfdata, parameters_to_condition_on, param_names):
 
             return_dict[param+"_sim"] = [meanval, stdval]
 
-        #Repeat once to standardise input parameters; only applies to the sims 
+        #Repeat once to standardise input parameters; only applies to the sims
         for param in param_names:
             meanval = np.mean(dft[param].values)
             stdval  = np.std(dft[param].values)
             dft[param] = (dft[param] - meanval)/stdval
 
             return_dict[param+"_sim"] = [meanval, stdval]
-        
+
     return dft, dfdata, return_dict
 
-def simulate_model(n_sim, n_batch, sims_savename, priors, simulatinator, inference):
+def simulate_model(n_sim, n_batch, sims_savename, priors, simulator, inference, device="cpu", batched=True):
     import os
     from tqdm import tqdm
-    from joblib import Parallel, delayed
 
-    #BRODIE 
-    #def batched_simulator(theta_batch):
-    #    results = Parallel(n_jobs=-1)(
-    #        delayed(simulatinator)(theta)
-    #        for theta in theta_batch
-    #        )
-    #    return torch.stack(results)
-
-    def batched_simulator(theta_batch):
-        return torch.stack([simulatinator(theta) for theta in theta_batch])
-    
     batch_size = n_batch
     num_simulations = n_sim
     save_path = sims_savename
 
-    # If the file already exists, start fresh
-    if os.path.exists(save_path):
-        os.remove(save_path)
+    all_theta = []
+    all_x = []
 
     with tqdm(total=num_simulations, desc="Running simulations", unit="sim") as pbar:
         for start in range(0, num_simulations, batch_size):
             current_bs = min(batch_size, num_simulations - start)
 
-            theta_batch = priors.sample((current_bs,))
-            x_batch = batched_simulator(theta_batch)
+            theta_batch = priors.sample((current_bs,)).to(device)
+            if batched:
+                x_batch = simulator(theta_batch)
+            else:
+                x_batch = torch.stack([simulator(t) for t in theta_batch])
             inference.append_simulations(theta_batch, x_batch)
 
-            if start == 0:
-                # First batch, create the file
-                torch.save({'theta': theta_batch, 'x': x_batch}, save_path)
-            else:
-                # Load existing data
-                data = torch.load(save_path)
-                data['theta'] = torch.cat([data['theta'], theta_batch], dim=0)
-                data['x'] = torch.cat([data['x'], x_batch], dim=0)
-                torch.save(data, save_path)
+            all_theta.append(theta_batch)
+            all_x.append(x_batch)
 
-            # Update progress bar
             pbar.update(current_bs)
-            pbar.set_postfix(saved=start + current_bs)
 
-    print(f"All simulations saved incrementally to '{save_path}'")
+    torch.save({'theta': torch.cat(all_theta), 'x': torch.cat(all_x)}, save_path)
+    print(f"All {num_simulations} simulations saved to '{save_path}'")
 
 def train_spne(prior, x):
 
@@ -718,31 +790,31 @@ def distancinator(x0_obs, x0_err, x1_obs, x1_err, c_obs, c_err, dist_mod):
 ## BEGIN PRIORS
 ######################
 
-def prior_generator(param_names, dicts):
+def prior_generator(param_names, dicts, device="cpu"):
 
     bounds_dict, function_dict, split_dict, priors_dict = dicts
     list_o_priors = []
-    
+
     for name in param_names:
         if "_HIGH_" in name:
             name = name.split("_HIGH_")[0]
 
-        func_name = function_dict[name].__name__        
+        func_name = function_dict[name].__name__
 
         if func_name == "DistGaussian":
             mu0, sigma0 = priors_dict[name]
-            mu_prior, sigma_prior = TwoDBoxPrior(mu0, sigma0)
+            mu_prior, sigma_prior = TwoDBoxPrior(mu0, sigma0, device=device)
             list_o_priors.extend([mu_prior, sigma_prior])
             if name in split_dict:
                 list_o_priors.extend([mu_prior, sigma_prior])
 
-                
+
         elif func_name == "DistExponential":
             tau0 = priors_dict[name][0]
 
             tau_prior = BoxUniform(
-                low= torch.tensor([tau0[0]], dtype=torch.float32),
-                high=torch.tensor([tau0[1]], dtype=torch.float32)
+                low= torch.tensor([tau0[0]], dtype=torch.float32, device=device),
+                high=torch.tensor([tau0[1]], dtype=torch.float32, device=device)
                     )
             
             list_o_priors.append(tau_prior)
@@ -755,31 +827,31 @@ def prior_generator(param_names, dicts):
             mu1, sigma1, mu2, sigma2, a, need_positive = priors_dict[name]
 
             mu1_prior = BoxUniform(
-                low= torch.tensor([mu1[0]], dtype=torch.float32), 
-                high=torch.tensor([mu1[1]], dtype=torch.float32)
+                low= torch.tensor([mu1[0]], dtype=torch.float32, device=device),
+                high=torch.tensor([mu1[1]], dtype=torch.float32, device=device)
                 )
 
             sigma1_prior = BoxUniform(
-                low= torch.tensor([sigma1[0]], dtype=torch.float32),
-                high=torch.tensor([sigma1[1]], dtype=torch.float32)
+                low= torch.tensor([sigma1[0]], dtype=torch.float32, device=device),
+                high=torch.tensor([sigma1[1]], dtype=torch.float32, device=device)
                 )
 
             mu2_prior = BoxUniform(
-                low= torch.tensor([mu2[0]], dtype=torch.float32), 
-                high=torch.tensor([mu2[1]], dtype=torch.float32)
+                low= torch.tensor([mu2[0]], dtype=torch.float32, device=device),
+                high=torch.tensor([mu2[1]], dtype=torch.float32, device=device)
                 )
 
             sigma2_prior = BoxUniform(
-                low= torch.tensor([sigma2[0]], dtype=torch.float32),
-                high=torch.tensor([sigma2[1]], dtype=torch.float32)
+                low= torch.tensor([sigma2[0]], dtype=torch.float32, device=device),
+                high=torch.tensor([sigma2[1]], dtype=torch.float32, device=device)
                 )
 
             a_prior = BoxUniform(
-                low= torch.tensor([a[0]], dtype=torch.float32),
-                high=torch.tensor([a[1]], dtype=torch.float32)
+                low= torch.tensor([a[0]], dtype=torch.float32, device=device),
+                high=torch.tensor([a[1]], dtype=torch.float32, device=device)
                 )
-            
-            
+
+
             list_o_priors.extend([mu1_prior, sigma1_prior, mu2_prior, sigma2_prior, a_prior])
 
             if name in split_dict:
@@ -791,40 +863,40 @@ def prior_generator(param_names, dicts):
         print([i], type(p))
 
                 
-    return MultipleIndependent(list_o_priors)
+    return MultipleIndependent(list_o_priors, device=device)
 
 
-def TwoDBoxPrior(param_1, param_2):
+def TwoDBoxPrior(param_1, param_2, device="cpu"):
     """
     General wrapper for any distribution with two parameters.
     """
 
     p1_prior = BoxUniform(
-        low= torch.tensor([param_1[0]], dtype=torch.float32), 
-        high=torch.tensor([param_1[1]], dtype=torch.float32)
+        low= torch.tensor([param_1[0]], dtype=torch.float32, device=device),
+        high=torch.tensor([param_1[1]], dtype=torch.float32, device=device)
         )
 
     p2_prior = BoxUniform(
-        low= torch.tensor([param_2[0]], dtype=torch.float32),
-        high=torch.tensor([param_2[1]], dtype=torch.float32)
+        low= torch.tensor([param_2[0]], dtype=torch.float32, device=device),
+        high=torch.tensor([param_2[1]], dtype=torch.float32, device=device)
         )
-    
+
     return p1_prior, p2_prior
 
 
-def TwoDGaussianPrior(param_1, param_2):
+def TwoDGaussianPrior(param_1, param_2, device="cpu"):
     """
     theta[0] ~ mean value, error on mean value
-    theta[1] ~ standard deviation of the Gaussian 
+    theta[1] ~ standard deviation of the Gaussian
     """
 
     p1_prior = Normal(
-        loc=torch.tensor(param_1[0], dtype=torch.float32),
-        scale=torch.tensor(param_1[1], dtype=torch.float32),
+        loc=torch.tensor(param_1[0], dtype=torch.float32, device=device),
+        scale=torch.tensor(param_1[1], dtype=torch.float32, device=device),
     )
 
     p2_prior = HalfNormal(
-        scale=torch.tensor(param_2[0], dtype=torch.float32),
+        scale=torch.tensor(param_2[0], dtype=torch.float32, device=device),
     )
 
     return p1_prior, p2_prior
