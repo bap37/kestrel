@@ -8,10 +8,10 @@ parameters_to_condition_on:
     ['c', 'mB', 'x1', 'zHD', 'cERR', 'mBERR', 'x1ERR', 'MU', 'HOST_LOGMASS', 'MURES']
 
 sim_parameters:
-    n_sim:   20000
-    n_batch: 200
-    simname: 'simulations_v2_part2.pt'
-    posteriorname: 'posterior.v2.pt'
+    n_sim:   50000
+    n_batch: 500
+    simname: 'simulations_v3.h5'
+    posteriorname: 'posterior.v3.pt'
 
 #########################
 # Dictionaries 
