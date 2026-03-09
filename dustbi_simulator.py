@@ -381,8 +381,12 @@ def parameter_generation(list_of_parameter_names, dicts):
     
     for name in list_of_parameter_names:
         if name in split_dict.keys():
-            split = (split_dict[name][0])
-            empty_list.append(name+"_HIGH_"+split)
+            evol_type = (split_dict[name][0])
+            if evol_type == 'Stepwise':
+                split = (split_dict[name][1])
+                empty_list.append(name+"_HIGH_"+split)
+            elif evol_type == 'Linear':
+                empty_list.append(name+"_EVOL_"+split)
         empty_list.append(name)
     return empty_list
 
@@ -702,25 +706,36 @@ def distancinator(x0_obs, x0_err, x1_obs, x1_err, c_obs, c_err, dist_mod):
 ## BEGIN PRIORS
 ######################
 
-def prior_generator(param_names, dicts, device="cpu"):
+def prior_generator(param_names, dicts, device='cpu'):
 
     bounds_dict, function_dict, split_dict, priors_dict = dicts
     list_o_priors = []
-
+    
     for name in param_names:
+        #We want to parse evolution parameters separately, so break the loop if we find one. 
+        if "EVOL" in name:
+            continue 
+        
         if "_HIGH_" in name:
             name = name.split("_HIGH_")[0]
 
-        func_name = function_dict[name].__name__
-
+        func_name = function_dict[name].__name__        
+        
         if func_name == "DistGaussian":
             mu0, sigma0 = priors_dict[name]
             mu_prior, sigma_prior = TwoDBoxPrior(mu0, sigma0, device=device)
             list_o_priors.extend([mu_prior, sigma_prior])
+            #EVOL parameters are assessed here. 
             if name in split_dict:
-                list_o_priors.extend([mu_prior, sigma_prior])
+                evol_type = (split_dict[name][0])
+                if evol_type == "Stepwise":
+                    list_o_priors.extend([mu_prior, sigma_prior])
+                elif evol_type == "Linear":
+                    offset0, slope0 = priors_dict[name+"_EVOL"]
+                    offset_prior, slope_prior = TwoDBoxPrior(offset0, slope0)
+                    list_o_priors.extend([offset_prior, slope_prior])
 
-
+                
         elif func_name == "DistExponential":
             tau0 = priors_dict[name][0]
 
@@ -732,14 +747,20 @@ def prior_generator(param_names, dicts, device="cpu"):
             list_o_priors.append(tau_prior)
 
             if name in split_dict:
-                list_o_priors.append(tau_prior)
+                evol_type = (split_dict[name][0])
+                if evol_type == "Stepwise":
+                    list_o_priors.extend([tau_prior])
+                elif evol_type == "Linear":
+                    offset0, slope0 = priors_dict[name+"_EVOL"]
+                    offset_prior, slope_prior = TwoDBoxPrior(offset0, slope0)
+                    list_o_priors.extend([offset_prior, slope_prior])
 
 
         if func_name == "DistDoubleGaussian":
             mu1, sigma1, mu2, sigma2, a, need_positive = priors_dict[name]
 
             mu1_prior = BoxUniform(
-                low= torch.tensor([mu1[0]], dtype=torch.float32, device=device),
+                low= torch.tensor([mu1[0]], dtype=torch.float32, device=device), 
                 high=torch.tensor([mu1[1]], dtype=torch.float32, device=device)
                 )
 
@@ -749,7 +770,7 @@ def prior_generator(param_names, dicts, device="cpu"):
                 )
 
             mu2_prior = BoxUniform(
-                low= torch.tensor([mu2[0]], dtype=torch.float32, device=device),
+                low= torch.tensor([mu2[0]], dtype=torch.float32, device=device), 
                 high=torch.tensor([mu2[1]], dtype=torch.float32, device=device)
                 )
 
@@ -762,18 +783,18 @@ def prior_generator(param_names, dicts, device="cpu"):
                 low= torch.tensor([a[0]], dtype=torch.float32, device=device),
                 high=torch.tensor([a[1]], dtype=torch.float32, device=device)
                 )
-
-
+            
+            
             list_o_priors.extend([mu1_prior, sigma1_prior, mu2_prior, sigma2_prior, a_prior])
 
             if name in split_dict:
-                list_o_priors.extend([mu1_prior, sigma1_prior, mu2_prior, sigma2_prior, a_prior])
-
-                
-    print("Total priors added:", len(list_o_priors))
-    for i, p in enumerate(list_o_priors):
-        print([i], type(p))
-
+                evol_type = (split_dict[name][0])
+                if evol_type == "Stepwise":
+                    list_o_priors.extend([mu1_prior, sigma1_prior, mu2_prior, sigma2_prior, a_prior])
+                elif evol_type == "Linear":
+                    offset0, slope0 = priors_dict[name+"_EVOL"]
+                    offset_prior, slope_prior = TwoDBoxPrior(offset0, slope0)
+                    list_o_priors.extend([offset_prior, slope_prior])
                 
     return MultipleIndependent(list_o_priors, device=device)
 

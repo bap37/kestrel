@@ -69,6 +69,8 @@ params_to_fit = parameter_generation(param_names, dicts)
 priors = prior_generator(param_names, dicts, device=device)
 
 layout = build_layout(params_to_fit, dicts)
+print(layout)
+
 
 ndim = len(parameters_to_condition_on)
 print(f"The NN will be trained on a {ndim}-dimensional space, on {param_names}")
