@@ -33,8 +33,8 @@ Functions:
 
 
 Splits:
-    SIM_RV:  ["HOST_LOGMASS", 10] #A list containing the split parameter and location
-    SIM_EBV: ['HOST_LOGMASS', 10]
+    SIM_RV:  ["Stepwise","HOST_LOGMASS", 10] #A list containing the split parameter and location
+    SIM_EBV: ["Stepwise","HOST_LOGMASS", 10]
 #    SIM_c:   ['HOST_LOGMASS', 10]
 
 

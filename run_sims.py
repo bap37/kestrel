@@ -54,8 +54,6 @@ function_dict = {
     "SIM_beta": DistGaussian,
     "SIM_x1"  : DistGaussian,
 }
-
-#infos['Splits'] = {}
     
 dicts = [infos['Boundaries'], function_dict, infos['Splits'], infos['Priors']]
 
@@ -121,34 +119,39 @@ if __name__ == "__main__":
         print("I'm very sorry but the kestrel hasn't taken flight yet!")
         quit()
 
-    df, dfdata = load_data(simfilename, datfilename)
+    #A quick hack to avoid the painful loading of a bunch of unnecessary features...
+    if args.SIMULATE:
+        df, dfdata = load_data(simfilename, datfilename)
 
-    print("Adding 'broad' MURES now. ")
+        print("Adding 'broad' MURES now. ")
     
-    output_distribution = preprocess_input_distribution(
-    df, parameters_to_condition_on[:-1]+['x0', 'x0ERR', 'MU'])
+        output_distribution = preprocess_input_distribution(
+            df, parameters_to_condition_on[:-1]+['x0', 'x0ERR', 'MU'])
 
-    MURES_SIMS = add_distance(output_distribution)
-    df['MURES'] = MURES_SIMS
+        MURES_SIMS = add_distance(output_distribution)
+        df['MURES'] = MURES_SIMS
 
-    output_distribution = preprocess_input_distribution(
-    dfdata, parameters_to_condition_on[:-1]+['x0', 'x0ERR', 'MU'])
+        output_distribution = preprocess_input_distribution(
+            dfdata, parameters_to_condition_on[:-1]+['x0', 'x0ERR', 'MU'])
 
-    MURES_DATA = add_distance(output_distribution)
-    dfdata['MURES'] = MURES_DATA
+        MURES_DATA = add_distance(output_distribution)
+        dfdata['MURES'] = MURES_DATA
 
-    print("We are temporarily not standardising data.")
-    #df, dfdata = standardise_data(df, dfdata, parameters_to_condition_on)
+        print("We are temporarily not standardising data.")
+        #df, dfdata = standardise_data(df, dfdata, parameters_to_condition_on)
 
-    simulatinator = make_simulator(layout, df, param_names,
-                                   parameters_to_condition_on, dicts, dfdata, device=device)
+        simulatinator = make_simulator(layout, df, param_names,
+                                   parameters_to_condition_on, dicts,
+                                   dfdata, device=device)
 
-    simulation_wrapper = process_simulator(simulatinator, prior, prior_returns_numpy)
-    check_sbi_inputs(simulation_wrapper, prior)
+        simulation_wrapper = process_simulator(simulatinator, prior,
+                                               prior_returns_numpy)
+        check_sbi_inputs(simulation_wrapper, prior)
 
-    sim_for_training = make_batched_simulator(layout, df, param_names,
-                                                parameters_to_condition_on, dicts, dfdata, device=device)
-    batched = True
+        sim_for_training = make_batched_simulator(layout, df,
+                                param_names,parameters_to_condition_on,
+                                dicts, dfdata, device=device)
+        batched = True
 
     if args.SIMULATE:
         print(f"Training {n_sim} simulations and saving to {sims_savename}")

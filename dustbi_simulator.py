@@ -1,4 +1,3 @@
-
 from dataclasses import dataclass
 import torch
 from torch.distributions import Normal, LogNormal, Exponential, HalfNormal
@@ -148,7 +147,7 @@ def simulator(theta: torch.Tensor, layout, param_names, parameters_to_condition_
 
             if name in split_dict:
 
-                split_param, split_val = split_dict[name]
+                _, split_param, split_val = split_dict[name]
                 split_tensor = df_tensor[split_param]
 
                 if high_flag:
@@ -269,7 +268,7 @@ def make_simulator(layout, df, param_names, parameters_to_condition_on, dicts, d
     
     validate_order(param_names, function_dict) #force correct parameter order
 
-    splits = list({v[0] for v in split_dict.values()}) #spools out split_dict parameters.
+    splits = list({v[1] for v in split_dict.values()}) #spools out split_dict parameters.
 
 
     params_to_fit = parameter_generation(param_names, dicts)
@@ -290,7 +289,7 @@ def make_batched_simulator_old(layout, df, param_names, parameters_to_condition_
     validate_order(param_names, function_dict)
     params_to_fit = parameter_generation(param_names, dicts)
 
-    splits = list({v[0] for v in split_dict.values()}) #spools out split_dict parameters.
+    splits = list({v[1] for v in split_dict.values()}) #spools out split_dict parameters.
 
     # Pre-compute ALL tensor columns ONCE
     all_cols = list(set(list(priors_dict.keys()) + splits + parameters_to_condition_on))
@@ -367,7 +366,7 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
     validate_order(param_names, function_dict)
     params_to_fit = parameter_generation(param_names, dicts)
 
-    splits = list({v[0] for v in split_dict.values()}) #spools out split_dict parameters.
+    splits = list({v[1] for v in split_dict.values()}) #spools out split_dict parameters.
 
     # Pre-compute ALL tensor columns ONCE
     all_cols = list(set(list(priors_dict.keys()) + splits + parameters_to_condition_on))
@@ -405,6 +404,7 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
             for i in range(layout.counts[dist]):
                 param_index = layout.idx[dist][i]
                 name = param_names[param_index]
+                print(param_index, name)
                 if "_HIGH_" in name:
                     name = name.split("_HIGH_")[0]
                     high_flag = True
@@ -414,7 +414,7 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
                 batch_size = B
 
                 if name in split_dict:
-                    split_param, split_val = split_dict[name]
+                    _, split_param, split_val = split_dict[name]
                     split_tensor = df_tensor[split_param]
 
                     if high_flag:
@@ -903,7 +903,9 @@ def prior_generator(param_names, dicts, device='cpu'):
                     offset0, slope0 = priors_dict[name+"_EVOL"]
                     offset_prior, slope_prior = TwoDBoxPrior(offset0, slope0)
                     list_o_priors.extend([offset_prior, slope_prior])
-                
+
+    print(f"Added {len(list_o_priors)} priors")
+                    
     return MultipleIndependent(list_o_priors, device=device)
 
 
