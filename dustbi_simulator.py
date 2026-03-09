@@ -1,3 +1,4 @@
+
 from dataclasses import dataclass
 import torch
 from torch.distributions import Normal, LogNormal, Exponential, HalfNormal
@@ -14,69 +15,79 @@ from Functions import *
 
 @dataclass
 class ThetaLayout:
-    #Add_Function_Key
-    gauss: slice
-    exp: slice
-    lognormal: slice
-    double_gaussian: slice
-    n_gauss: int
-    n_lognormal: int
-    n_double_gaussian: int
+    slices: dict
+    idx: dict
+    counts: dict
+    n_params: dict
 
-def build_theta_layout(n_gauss: int, n_exp: int, n_lognormal: int, n_double_gaussian: int) -> ThetaLayout:
-    
-    #Add_Function_Key
-    
+def build_theta_layout(counts, n_params):
+
+    slices = {}
     idx = 0
 
-    gauss_slice = slice(idx, idx + 2 * n_gauss)
-    idx += 2 * n_gauss
+    for dist in counts:
 
-    exp_slice = slice(idx, idx + n_exp)
-    idx += n_exp
-    
-    lognormal_slice = slice(idx, idx + 2 * n_lognormal)
-    idx += 2 * n_lognormal
-    
-    double_gaussian_slice = slice(idx, idx + 5 * n_double_gaussian)
-    idx += 5 * n_double_gaussian
-    
-    return ThetaLayout(
-        gauss=gauss_slice,
-        exp=exp_slice,
-        lognormal=lognormal_slice,
-        double_gaussian=double_gaussian_slice,
-        n_gauss=n_gauss,
-        n_lognormal=n_lognormal,
-        n_double_gaussian=n_double_gaussian
-    )
+        width = counts[dist] * n_params[dist]
+        slices[dist] = slice(idx, idx + width)
+        idx += width
 
+    return slices
 
 def build_layout(param_names, dicts):
-            
-    #Add_Function_Key 
-    n_gauss = 0 ; n_exp = 0 ; n_lognormal = 0; n_double_gaussian = 0
+
     bounds_dict, function_dict, split_dict, priors_dict = dicts
 
-    
-    #need to include the splitting ability 
-    
-    for name in param_names:
-        
-        if "HIGH" in name: name = name.split("_HIGH_")[0]
-        funcname = function_dict[name].__name__    
-        
-        if   "DistGaussian"    == str(funcname): n_gauss += 1 ; 
-        elif "Exponential"     in str(funcname): n_exp   += 1 ;
-        elif "LogNormal"       in str(funcname): n_lognormal += 1;
-        elif "Double"          in str(funcname): n_double_gaussian +1;
-        #Add_Function_Key
-    
-    layout = build_theta_layout(n_gauss=n_gauss, n_exp=n_exp, 
-                                n_lognormal = n_lognormal, 
-                                n_double_gaussian = n_double_gaussian)
-    
-    return layout 
+    idx = {
+        "gauss": [],
+        "exp": [],
+        "lognormal": [],
+        "double_gaussian": [],
+        "linear": [],
+        "stepwise": [],
+    }
+
+    for i, name in enumerate(param_names):
+
+        base = name.split("_HIGH_")[0]
+        funcname = function_dict[base].__name__
+
+        if funcname == "DistGaussian":
+            idx["gauss"].append(i)
+
+        elif "Exponential" in funcname:
+            idx["exp"].append(i)
+
+        elif "LogNormal" in funcname:
+            idx["lognormal"].append(i)
+
+        elif "Double" in funcname:
+            idx["double_gaussian"].append(i)
+
+        elif "Linear" in funcname:
+            idx["linear"].append(i)
+
+        elif "Stepwise" in funcname:
+            idx["stepwise"].append(i)
+
+    counts = {k: len(v) for k, v in idx.items()}
+
+    n_params = {
+        "gauss": 2,
+        "exp": 1,
+        "lognormal": 2,
+        "double_gaussian": 5,
+        "linear": 2,
+        "stepwise": 1,
+    }
+
+    slices = build_theta_layout(counts, n_params)
+
+    return ThetaLayout(
+        slices=slices,
+        idx=idx,
+        counts=counts,
+        n_params=n_params
+    )
     
 
 #######################
@@ -84,12 +95,11 @@ def build_layout(param_names, dicts):
 #######################
 
 def simulator(theta: torch.Tensor, layout, param_names, parameters_to_condition_on,
-               df, df_tensor, dicts, dfdata, is_split, debug=False):
+               df, df_tensor, dicts, dfdata, debug=False):
 
     #Unravel a bunch of necessary information
     bounds_dict, function_dict, split_dict, priors_dict = dicts
     high_flag = True #Set split flag early in case we need to keep track of parameters in split_dict
-    splits = list({v[0] for v in split_dict.values()}) #spools out split_dict parameters.
 
     #salt_mcmc = start_distance()
     
@@ -99,7 +109,6 @@ def simulator(theta: torch.Tensor, layout, param_names, parameters_to_condition_
 
     #set up error catching for simulator
     numdim = len(parameters_to_condition_on)#+1 BRODIE 
-    if is_split: numdim *= 2
     BAD_SIMULATION = torch.full((len(dfdata), numdim), float('nan'), device=device)
 
     #Initialise weights
@@ -295,37 +304,11 @@ def simulator(theta: torch.Tensor, layout, param_names, parameters_to_condition_
     # --------------------------------------------------
 
     #parameters_to_condition_on = parameters_to_condition_on+['MURES']
-
-    #Check if any of the model parameters are split; if so, proceed to offer chopped distributions. 
-    
-    if is_split:
-
-        matching = [p for p in param_names if p in split_dict]
-        name = matching[0]
-        
-        split_param = split_dict[name][0]
-        split_val   = split_dict[name][1]
-    
-    
-        split_tensor = torch.tensor(
-        dft[split_param].to_numpy(),
-        dtype=torch.float32,
-        device=device
-    )
-    
-        x = split_outputs(
-            output_distribution,
-            split_tensor,
-            split_val,
-            parameters_to_condition_on
-        )
-        
-    else:
-        #And stack the conditioned parameters
+    #And stack the conditioned parameters
         x = torch.stack(
-            [output_distribution[p] for p in parameters_to_condition_on],
-            dim=-1
-        )
+        [output_distribution[p] for p in parameters_to_condition_on],
+        dim=-1
+    )
     
     #debug flag will helpfully return a pandas dataframe containing your desired distribution
     if debug:
@@ -345,15 +328,14 @@ def preprocess_input_distribution(df, cols):
         for col in cols
     }
 
-def make_simulator(layout, df, param_names, parameters_to_condition_on, dicts, dfdata, is_split, debug=False, device="cpu"):
+def make_simulator(layout, df, param_names, parameters_to_condition_on, dicts, dfdata, debug=False, device="cpu"):
 
     _, function_dict, split_dict, priors_dict = dicts
     
     validate_order(param_names, function_dict) #force correct parameter order
 
     splits = list({v[0] for v in split_dict.values()}) #spools out split_dict parameters.
-    if is_split:
-        print(f"Found a split in {split_dict.keys()}")
+
 
     params_to_fit = parameter_generation(param_names, dicts)
 
@@ -363,7 +345,7 @@ def make_simulator(layout, df, param_names, parameters_to_condition_on, dicts, d
     }
 
     def simulator_with_input(theta):
-        return simulator(theta, layout, params_to_fit, parameters_to_condition_on, df, df_tensor, dicts, dfdata, is_split, debug)
+        return simulator(theta, layout, params_to_fit, parameters_to_condition_on, df, df_tensor, dicts, dfdata, debug)
 
     return simulator_with_input
 
@@ -372,10 +354,6 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
     bounds_dict, function_dict, split_dict, priors_dict = dicts
     validate_order(param_names, function_dict)
     params_to_fit = parameter_generation(param_names, dicts)
-
-    splits = list({v[0] for v in split_dict.values()})
-    if any(p in split_dict for p in param_names):
-        raise NotImplementedError("make_batched_simulator does not support split parameters yet")
 
     # Pre-compute ALL tensor columns ONCE
     all_cols = list(set(list(priors_dict.keys()) + splits + parameters_to_condition_on))
