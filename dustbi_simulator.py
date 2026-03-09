@@ -115,133 +115,68 @@ def simulator(theta: torch.Tensor, layout, param_names, parameters_to_condition_
     N = len(df)
     joint_weights = torch.ones(batch_size, N, device=device)
 
-    # --------------------------------------------------
-    # Gaussian Parameters
-    # --------------------------------------------------
+    #########################
+    # Once without if/then statements
+    #########################
+    for dist in layout.slices:
 
-    gauss_theta = theta[:, layout.gauss]
-    gauss_theta = gauss_theta.view(batch_size, layout.n_gauss, 2)
-
-    #Loops over all the Gaussian parameters to sample from.
-    for i in range(layout.n_gauss):
-        idx = layout.gauss.start + 2*i ; name = param_names[i]
-    
-        if "_HIGH_" in name:
-            name = name.split("_HIGH_")[0] ; high_flag = True
-
-        bounds = bounds_dict[name] ; shape = function_dict[name]
+        if layout.counts[dist] == 0:
+            continue 
         
-        x = df_tensor[name]  
-        theta_g = gauss_theta[:, i, :]
+        theta_dist = theta[:, layout.slices[dist]]
+        n_param = layout.n_params[dist]
 
-        ########################
-        #Start Split Logic
+        theta_dist = theta_dist.view(batch_size, layout.counts[dist], n_param)
 
-        if name in split_dict:
+        for i in range(layout.counts[dist]):
 
-            split_param, split_val = split_dict[name]
-            split_tensor = df_tensor[split_param]
+            param_index = layout.idx[dist][i]
+            name = param_names[param_index]
 
-            if high_flag:
-                mask = split_tensor >= split_val
-                high_flag = False
+            if "_HIGH_" in name:
+                name = name.split("_HIGH_")[0]
+                high_flag = True
+
+            shape = function_dict[name]
+            x = df_tensor[name]
+
+            theta_i = theta_dist[:, i, :]
+
+            ########################
+            # Split Logic
+            ########################
+
+            if name in split_dict:
+
+                split_param, split_val = split_dict[name]
+                split_tensor = df_tensor[split_param]
+
+                if high_flag:
+                    mask = split_tensor >= split_val
+                    high_flag = False
+                else:
+                    mask = split_tensor < split_val
+
+                weights = torch.ones(batch_size, N, device=device)
+
+                x_sub = x[mask]
+                density_sub = shape(x_sub, theta_i)
+                density_sub = torch.clamp(density_sub, min=0.0)
+
+                if density_sub.ndim == 1:
+                    density_sub = density_sub.unsqueeze(0)
+
+                weights[:, mask] = density_sub
+
             else:
-                mask = split_tensor < split_val
 
-            weights = torch.ones(batch_size, N, device=device)
+                density = shape(x, theta_i)
+                weights = torch.clamp(density, min=0.0)
 
-            x_sub = x[mask]
-            density_sub = shape(x_sub, theta_g)
-            density_sub = torch.clamp(density_sub, min=0.0)
+            if weights.ndim == 1:
+                weights = weights.unsqueeze(0)
 
-            if density_sub.ndim == 1:
-                density_sub = density_sub.unsqueeze(0)
-
-            weights[:, mask] = density_sub
-
-
-
-        #If no split, treat as-normal.
-        else:
-            density = shape(x, theta_g)  # expect (N,) or broadcastable
-            weights = density 
-            weights = torch.clamp(weights, min=0.0)
-        
-        ########################
-        #End Split Logic
-
-        if weights.ndim == 1: weights = weights.unsqueeze(0)  # shape = (1, N)
-        joint_weights *= weights #Apply weight
-
-        
-    # --------------------------------------------------
-    # Exponential Parameters
-    # --------------------------------------------------
-
-    #Same Logic as Gaussian, basically.
-    
-    exp_theta = theta[:, layout.exp]
-
-    for i in range(exp_theta.shape[1]):
-        name = param_names[layout.n_gauss + i]
-
-        if "_HIGH_" in name:
-            name = name.split("_HIGH_")[0]
-            high_flag = True
-
-        theta_e = exp_theta[:, i:i+1]
-
-        bounds = bounds_dict[name]
-        shape = function_dict[name]
-
-        x = df_tensor[name]
-        theta_e = exp_theta[:, i:i+1]
-
-       ########################
-        #Start Split Logic
-        
-        if name in split_dict:
-
-            split_param, split_val = split_dict[name]
-            split_tensor = df_tensor[split_param]
-
-            if high_flag:
-                mask = split_tensor >= split_val
-                high_flag = False
-            else:
-                mask = split_tensor < split_val
-
-            weights = torch.ones(batch_size, N, device=device)
-
-            x_sub = x[mask]
-            density_sub = shape(x_sub, theta_e)
-            density_sub = torch.clamp(density_sub, min=0.0)
-
-            if density_sub.ndim == 1:
-                density_sub = density_sub.unsqueeze(0)
-
-            weights[:, mask] = density_sub
-
-                
-        else:
-            density = shape(x, theta_e)  # expect (N,) or broadcastable
-            weights = density 
-            weights = torch.clamp(weights, min=0.0)
-        
-
-
-        if weights.ndim == 1: weights = weights.unsqueeze(0)  # shape = (1, N)
-
-        joint_weights *= weights
-
-
-        
-    # --------------------------------------------------
-    # Additional Parameters
-    # --------------------------------------------------
-
-    #Will need to be added as more functions are included. Please follow the same logic as Gaussian parameters.
-        
+            joint_weights *= weights
 
     # --------------------------------------------------
     # Normalise + Resample Once
@@ -305,10 +240,10 @@ def simulator(theta: torch.Tensor, layout, param_names, parameters_to_condition_
 
     #parameters_to_condition_on = parameters_to_condition_on+['MURES']
     #And stack the conditioned parameters
-        x = torch.stack(
-        [output_distribution[p] for p in parameters_to_condition_on],
-        dim=-1
-    )
+    x = torch.stack(
+    [output_distribution[p] for p in parameters_to_condition_on],
+    dim=-1
+)
     
     #debug flag will helpfully return a pandas dataframe containing your desired distribution
     if debug:
@@ -355,6 +290,8 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
     validate_order(param_names, function_dict)
     params_to_fit = parameter_generation(param_names, dicts)
 
+    splits = list({v[0] for v in split_dict.values()}) #spools out split_dict parameters.
+
     # Pre-compute ALL tensor columns ONCE
     all_cols = list(set(list(priors_dict.keys()) + splits + parameters_to_condition_on))
     df_tensor = {
@@ -379,27 +316,24 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
 
         joint_weights = torch.ones(B, N, device=device)
 
-        # --- Gaussian parameters (batched across all B thetas) ---
-        gauss_theta = theta[:, layout.gauss].view(B, layout.n_gauss, 2)
+        # --- Trying to replace Matt's stuff
+        for dist in layout.slices:
+            if layout.counts[dist] == 0:
+                continue 
+            theta_dist = theta[:, layout.slices[dist]]
+            n_param = layout.n_params[dist]
+            theta_dist = theta_dist.view(B, layout.counts[dist], n_param)
 
-        for i in range(layout.n_gauss):
-            name = params_to_fit[i]
-            if "_HIGH_" in name:
-                name = name.split("_HIGH_")[0]
+            for i in range(layout.counts[dist]):
+                param_index = layout.idx[dist][i]
+                name = param_names[param_index]
+                if "_HIGH_" in name:
+                    name = name.split("_HIGH_")[0]
 
-            density = function_dict[name](df_tensor[name], gauss_theta[:, i, :])
-            joint_weights *= torch.clamp(density, min=0.0)
+                theta_i = theta_dist[:, i, :]
+                density = function_dict[name](df_tensor[name], theta_i)
 
-        # --- Exponential parameters (batched across all B thetas) ---
-        exp_theta = theta[:, layout.exp]
-
-        for i in range(exp_theta.shape[1]):
-            name = params_to_fit[layout.n_gauss + i]
-            if "_HIGH_" in name:
-                name = name.split("_HIGH_")[0]
-
-            density = function_dict[name](df_tensor[name], exp_theta[:, i:i+1])
-            joint_weights *= torch.clamp(density, min=0.0)
+                joint_weights *= torch.clamp(density, min=0.0)
 
         # --- Normalise ---
         weight_sum = joint_weights.sum(dim=1, keepdim=True)  # (B, 1)

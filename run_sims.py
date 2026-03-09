@@ -54,6 +54,8 @@ function_dict = {
     "SIM_beta": DistGaussian,
     "SIM_x1"  : DistGaussian,
 }
+
+infos['Splits'] = {}
     
 dicts = [infos['Boundaries'], function_dict, infos['Splits'], infos['Priors']]
 
@@ -69,9 +71,6 @@ priors = prior_generator(param_names, dicts, device=device)
 layout = build_layout(params_to_fit, dicts)
 
 ndim = len(parameters_to_condition_on)
-has_splits = any(p in infos['Splits'] for p in param_names)
-if has_splits:
-    ndim *= 2
 print(f"The NN will be trained on a {ndim}-dimensional space, on {param_names}")
 
 ###############
@@ -140,20 +139,14 @@ if __name__ == "__main__":
     #df, dfdata = standardise_data(df, dfdata, parameters_to_condition_on)
 
     simulatinator = make_simulator(layout, df, param_names,
-                                   parameters_to_condition_on, dicts, dfdata, is_split=has_splits, device=device)
+                                   parameters_to_condition_on, dicts, dfdata, device=device)
 
     simulation_wrapper = process_simulator(simulatinator, prior, prior_returns_numpy)
     check_sbi_inputs(simulation_wrapper, prior)
 
-    if has_splits:
-        # Splits on: use single-theta simulator wrapped per-theta
-        sim_for_training = simulatinator
-        batched = False
-    else:
-        # Splits off: use fast vectorized batched simulator
-        sim_for_training = make_batched_simulator(layout, df, param_names,
-                                                   parameters_to_condition_on, dicts, dfdata, device=device)
-        batched = True
+    sim_for_training = make_batched_simulator(layout, df, param_names,
+                                                parameters_to_condition_on, dicts, dfdata, device=device)
+    batched = True
 
     if args.SIMULATE:
         print(f"Training {n_sim} simulations and saving to {sims_savename}")
