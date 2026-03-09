@@ -55,7 +55,7 @@ function_dict = {
     "SIM_x1"  : DistGaussian,
 }
 
-infos['Splits'] = {}
+#infos['Splits'] = {}
     
 dicts = [infos['Boundaries'], function_dict, infos['Splits'], infos['Priors']]
 
@@ -156,19 +156,50 @@ if __name__ == "__main__":
         print("Quitting after simulation stage.")
         quit()
     ################
-    if os.path.exists(sims_savename) & args.TRAIN:
-        data = torch.load(sims_savename)
-        theta_batch = data["theta"]
-        x_batch = data["x"]
-    else:
-        print(f"I've not detected {sims_savename} anywhere. Is this intentional?")
-        quit()
-    ################
     if args.TRAIN:
+    ################
+        if os.path.exists(sims_savename) & args.TRAIN:
+            pass
+        else:
+            print(f"I've not detected {sims_savename} anywhere. Is this intentional?")
+            quit()
 
-        inference.append_simulations(theta_batch, x_batch)
-        density_estimator = inference.train(validation_fraction=0.1)
-        print("\n inferred successfully")
+        import h5py
+
+        chunk_size=10000
+        
+        with h5py.File(sims_savename, "r") as f:
+            theta_total = f["theta"]
+            x_total = f["x"]
+            n = theta_total.shape[0]
+
+            for start in range(0, n, chunk_size):
+                end = min(start + chunk_size, n)
+                print(f"Processing chunk {start}:{end}")
+                
+                # Load chunk
+                theta_batch = torch.tensor(theta_total[start:end]).cuda()
+                x_batch = torch.tensor(x_total[start:end]).cuda()
+
+                # Append simulations
+                inference.append_simulations(theta_batch, x_batch)
+
+                # Train only on this chunk
+                density_estimator = inference.train(
+                    validation_fraction=0.1,
+                    force_first_round_loss=True  # prior samples; keeps training consistent
+                )
+
+                # Clear simulations from inference to save memory
+                inference._theta = []
+                inference._x = []
+
+                print(f"Chunk {start}:{end} trained and cleared from memory.")
+
+        # Build posterior from final density estimator
         posterior = inference.build_posterior(density_estimator)
+
         with open(posterior_savename, "wb") as handle:
             pickle.dump(posterior, handle)
+
+        print(f"Posterior saved to {posterior_savename}")

@@ -284,7 +284,7 @@ def make_simulator(layout, df, param_names, parameters_to_condition_on, dicts, d
 
     return simulator_with_input
 
-def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
+def make_batched_simulator_old(layout, df, param_names, parameters_to_condition_on,
                            dicts, dfdata, sub_batch=10, device="cpu"):
     bounds_dict, function_dict, split_dict, priors_dict = dicts
     validate_order(param_names, function_dict)
@@ -329,7 +329,8 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
                 name = param_names[param_index]
                 if "_HIGH_" in name:
                     name = name.split("_HIGH_")[0]
-
+                    high_flag = True
+                    
                 theta_i = theta_dist[:, i, :]
                 density = function_dict[name](df_tensor[name], theta_i)
 
@@ -360,6 +361,113 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
 
         return result
 
+def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
+                           dicts, dfdata, sub_batch=10, device="cpu"):
+    bounds_dict, function_dict, split_dict, priors_dict = dicts
+    validate_order(param_names, function_dict)
+    params_to_fit = parameter_generation(param_names, dicts)
+
+    splits = list({v[0] for v in split_dict.values()}) #spools out split_dict parameters.
+
+    # Pre-compute ALL tensor columns ONCE
+    all_cols = list(set(list(priors_dict.keys()) + splits + parameters_to_condition_on))
+    df_tensor = {
+        col: torch.tensor(df[col].to_numpy(), dtype=torch.float32, device=device)
+        for col in all_cols
+    }
+
+    # Pre-stack output columns for fast batched indexing
+    output_stack = torch.stack(
+        [df_tensor[col] for col in parameters_to_condition_on], dim=-1
+    )  # (N, n_features)
+
+    N = len(df)
+    n_target = len(dfdata)
+
+    def _simulate_sub_batch(theta):
+        """Fully batched: theta is (B, n_params), returns (B, n_target, n_features)."""
+        if theta.ndim == 1:
+            theta = theta.unsqueeze(0)
+        B = theta.shape[0]
+        device = theta.device
+
+        joint_weights = torch.ones(B, N, device=device)
+        high_flag = False
+        
+        # --- Trying to replace Matt's stuff
+        for dist in layout.slices:
+            if layout.counts[dist] == 0:
+                continue 
+            theta_dist = theta[:, layout.slices[dist]]
+            n_param = layout.n_params[dist]
+            theta_dist = theta_dist.view(B, layout.counts[dist], n_param)
+
+            for i in range(layout.counts[dist]):
+                param_index = layout.idx[dist][i]
+                name = param_names[param_index]
+                if "_HIGH_" in name:
+                    name = name.split("_HIGH_")[0]
+                    high_flag = True
+                    
+                theta_i = theta_dist[:, i, :]
+                x = df_tensor[name]  # (N,)
+                batch_size = B
+
+                if name in split_dict:
+                    split_param, split_val = split_dict[name]
+                    split_tensor = df_tensor[split_param]
+
+                    if high_flag:
+                        mask = split_tensor >= split_val
+                        high_flag = False
+                    else:
+                        mask = split_tensor < split_val
+                    
+                    weights = torch.ones(batch_size, N, device=device)
+
+                    x_sub = x[mask]  # still on GPU
+                    density_sub = function_dict[name](x_sub, theta_i)
+                    density_sub = torch.clamp(density_sub, min=0.0)
+
+                    if density_sub.ndim == 1:
+                        density_sub = density_sub.unsqueeze(0)
+                    weights[:, mask] = density_sub
+
+                else:
+                    density = function_dict[name](x, theta_i)
+                    weights = torch.clamp(density, min=0.0)
+
+                if weights.ndim == 1:
+                    weights = weights.unsqueeze(0)
+
+                joint_weights *= weights
+
+        # --- Normalise ---
+        weight_sum = joint_weights.sum(dim=1, keepdim=True)  # (B, 1)
+        bad_mask = (weight_sum.squeeze(1) == 0)
+
+        joint_weights[bad_mask] = 1.0
+        weight_sum = torch.where(weight_sum == 0, torch.tensor(float(N)), weight_sum)
+        normalized_weights = joint_weights / weight_sum
+
+        # --- ESS check: mark low-ESS draws as bad ---
+        ess = 1.0 / torch.sum(normalized_weights ** 2, dim=1)  # (B,)
+        bad_mask = bad_mask | (ess < n_target)
+
+        # --- Batched multinomial: draw n_target samples per theta ---
+        resampled_idx = torch.multinomial(
+            normalized_weights, num_samples=n_target, replacement=True
+        )  # (B, n_target)
+
+        # --- Batched output tensor indexing ---
+        result = output_stack[resampled_idx]  # (B, n_target, n_features)
+
+        # --- Fill bad simulations with NaN ---
+        result[bad_mask] = float('nan')
+
+        return result
+
+    
     def batched_simulator(theta_batch):
         """Process theta_batch in sub-batches to control memory."""
         B = theta_batch.shape[0]
