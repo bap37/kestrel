@@ -301,94 +301,17 @@ def make_simulator(layout, df, param_names, parameters_to_condition_on, dicts, d
 
     return simulator_with_input
 
-def make_batched_simulator_old(layout, df, param_names, parameters_to_condition_on,
-                           dicts, dfdata, sub_batch=10, device="cpu"):
-    bounds_dict, function_dict, split_dict, priors_dict = dicts
-    validate_order(param_names, function_dict)
-    params_to_fit = parameter_generation(param_names, dicts)
-
-    splits = list({v[1] for v in split_dict.values()}) #spools out split_dict parameters.
-
-    # Pre-compute ALL tensor columns ONCE
-    all_cols = list(set(list(priors_dict.keys()) + splits + parameters_to_condition_on))
-    df_tensor = {
-        col: torch.tensor(df[col].to_numpy(), dtype=torch.float32, device=device)
-        for col in all_cols
-    }
-
-    # Pre-stack output columns for fast batched indexing
-    output_stack = torch.stack(
-        [df_tensor[col] for col in parameters_to_condition_on], dim=-1
-    )  # (N, n_features)
-
-    N = len(df)
-    n_target = len(dfdata)
-
-    def _simulate_sub_batch(theta):
-        """Fully batched: theta is (B, n_params), returns (B, n_target, n_features)."""
-        if theta.ndim == 1:
-            theta = theta.unsqueeze(0)
-        B = theta.shape[0]
-        device = theta.device
-
-        joint_weights = torch.ones(B, N, device=device)
-
-        # --- Trying to replace Matt's stuff
-        for dist in layout.slices:
-            if layout.counts[dist] == 0:
-                continue 
-            theta_dist = theta[:, layout.slices[dist]]
-            n_param = layout.n_params[dist]
-            theta_dist = theta_dist.view(B, layout.counts[dist], n_param)
-
-            for i in range(layout.counts[dist]):
-                param_index = layout.idx[dist][i]
-                name = param_names[param_index]
-                if "_HIGH_" in name:
-                    name = name.split("_HIGH_")[0]
-                    high_flag = True
-                    
-                theta_i = theta_dist[:, i, :]
-                density = function_dict[name](df_tensor[name], theta_i)
-
-                joint_weights *= torch.clamp(density, min=0.0)
-
-        # --- Normalise ---
-        weight_sum = joint_weights.sum(dim=1, keepdim=True)  # (B, 1)
-        bad_mask = (weight_sum.squeeze(1) == 0)
-
-        joint_weights[bad_mask] = 1.0
-        weight_sum = torch.where(weight_sum == 0, torch.tensor(float(N)), weight_sum)
-        normalized_weights = joint_weights / weight_sum
-
-        # --- ESS check: mark low-ESS draws as bad ---
-        ess = 1.0 / torch.sum(normalized_weights ** 2, dim=1)  # (B,)
-        bad_mask = bad_mask | (ess < n_target)
-
-        # --- Batched multinomial: draw n_target samples per theta ---
-        resampled_idx = torch.multinomial(
-            normalized_weights, num_samples=n_target, replacement=True
-        )  # (B, n_target)
-
-        # --- Batched output tensor indexing ---
-        result = output_stack[resampled_idx]  # (B, n_target, n_features)
-
-        # --- Fill bad simulations with NaN ---
-        result[bad_mask] = float('nan')
-
-        return result
-
 
 def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
                            dicts, dfdata, sub_batch=10, device="cpu"):
     bounds_dict, function_dict, split_dict, priors_dict = dicts
     validate_order(param_names, function_dict)
-    params_to_fit = parameter_generation(param_names, dicts)
 
     splits = list({v[1] for v in split_dict.values()}) #spools out split_dict parameters.
 
     # Pre-compute ALL tensor columns ONCE
     all_cols = list(set(list(priors_dict.keys()) + splits + parameters_to_condition_on))
+    all_cols.remove("STEP")
     df_tensor = {
         col: torch.tensor(df[col].to_numpy(), dtype=torch.float32, device=device)
         for col in all_cols
@@ -398,6 +321,18 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
     output_stack = torch.stack(
         [df_tensor[col] for col in parameters_to_condition_on], dim=-1
     )  # (N, n_features)
+
+    #Calculate indices for things that need the "mass" step added to them. 
+    steps_to_add = ['MU', 'MURES', 'mB']
+    step_indices = torch.tensor(
+        [parameters_to_condition_on.index(c) for c in steps_to_add],
+        dtype=torch.long,
+        device=device
+    )
+
+    y_idx = parameters_to_condition_on.index(split_dict["STEP"][1])
+    step_threshold = split_dict["STEP"][2]
+
 
     N = len(df)
     n_target = len(dfdata)
@@ -481,6 +416,13 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
         # --- Batched output tensor indexing ---
         result = output_stack[resampled_idx]  # (B, n_target, n_features)
 
+        #then add whatever proposed step is necessary.
+        if "STEP" in param_names:
+            gamma = theta[:, -1].unsqueeze(1)       # (B,1)
+            y = result[:, :, y_idx]                 # (B, n_target)
+            step = torch.where(y < step_threshold, -gamma, gamma)  # (B, n_target)
+            result[:, :, step_indices] += step.unsqueeze(-1)
+
         # --- Fill bad simulations with NaN ---
         result[bad_mask] = float('nan')
 
@@ -532,11 +474,17 @@ def validate_order(param_names, function_dict):
         DistExponential: 5,
     }
 
-    priorities = [order_priority[function_dict[p]] for p in param_names]
+    #Temporarily strip "step" from param names, since it's implemented differently.
+    new_list = param_names.copy()
+    new_list.remove("STEP")
+
+    priorities = [order_priority[function_dict[p]] for p in new_list]
 
     if priorities != sorted(priorities):
         raise ValueError("Please ensure that any Exponential distribution strictly comes after all Gaussian distributions.")
-
+    elif param_names[-1] != "STEP":
+        raise ValueError("Please ensure that the step parameter is the last entry in param_names.")
+        
     return True
 
 
@@ -871,7 +819,9 @@ def prior_generator(param_names, dicts, device='cpu'):
         #We want to parse evolution parameters separately, so break the loop if we find one. 
         if "EVOL" in name:
             continue 
-        
+        if "STEP" in name:
+            continue 
+
         if "_HIGH_" in name:
             name = name.split("_HIGH_")[0]
 
@@ -952,10 +902,20 @@ def prior_generator(param_names, dicts, device='cpu'):
                     offset_prior, slope_prior = TwoDBoxPrior(offset0, slope0)
                     list_o_priors.extend([offset_prior, slope_prior])
 
+
+    if "STEP" in param_names:
+        step0 = priors_dict["STEP"][0]
+
+        step_prior = BoxUniform(
+            low= torch.tensor([step0[0]], dtype=torch.float32, device=device), 
+            high=torch.tensor([step0[1]], dtype=torch.float32, device=device)
+            )
+        list_o_priors.extend([step_prior])
+
+
     print(f"Added {len(list_o_priors)} priors")
                     
     return MultipleIndependent(list_o_priors, device=device)
-
 
 def TwoDBoxPrior(param_1, param_2, device="cpu"):
     """
