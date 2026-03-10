@@ -47,6 +47,29 @@ def plot_tarp(ecp, alpha, savename):
     plt.savefig(savename, bbox_inches="tight")
     return fig, ax
 
+def plot_loss(inference, savename):
+    
+    import matplotlib.pyplot as plt
+
+    fig = plt.figure(figsize=(6, 6))
+    ax: Axes = plt.gca()
+
+    train_losses = inference._summary["training_loss"]
+    val_losses = inference._summary["validation_loss"]
+
+    plt.plot(train_losses, label="train")
+    plt.plot(val_losses, label="validation")
+    plt.xlabel("Epoch")
+    plt.ylabel("Loss")
+    plt.legend(frameon=False, labelcolor="linecolor", fontsize=14)
+
+    ax.spines[['bottom', 'left']].set_color('dimgrey')
+    ax.spines[['top', 'right']].set_visible(False)
+    ax.spines[['bottom', 'left']].set_lw(2)
+    ax.tick_params(axis="both", which="both", colors="dimgrey", labelsize=15)
+
+    plt.savefig(savename, bbox_inches="tight")
+
 
 #################################
 # Posterior calibration plots

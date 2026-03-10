@@ -707,35 +707,7 @@ def standardise_data(dft, dfdata, parameters_to_condition_on, param_names):
 
     return dft, dfdata, return_dict
 
-def simulate_model_old(n_sim, n_batch, sims_savename, priors, simulator, inference, device="cpu", batched=True):
-    import os
-    from tqdm import tqdm
 
-    batch_size = n_batch
-    num_simulations = n_sim
-    save_path = sims_savename
-
-    all_theta = []
-    all_x = []
-
-    with tqdm(total=num_simulations, desc="Running simulations", unit="sim") as pbar:
-        for start in range(0, num_simulations, batch_size):
-            current_bs = min(batch_size, num_simulations - start)
-
-            theta_batch = priors.sample((current_bs,)).to(device)
-            if batched:
-                x_batch = simulator(theta_batch)
-            else:
-                x_batch = torch.stack([simulator(t) for t in theta_batch])
-            inference.append_simulations(theta_batch, x_batch)
-
-            all_theta.append(theta_batch)
-            all_x.append(x_batch)
-
-            pbar.update(current_bs)
-
-    torch.save({'theta': torch.cat(all_theta), 'x': torch.cat(all_x)}, save_path)
-    print(f"All {num_simulations} simulations saved to '{save_path}'")
 
 def simulate_model(n_sim, n_batch, sims_savename, priors, simulator, inference, device="cpu", batched=True):
     import h5py
