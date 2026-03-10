@@ -707,7 +707,7 @@ def standardise_data(dft, dfdata, parameters_to_condition_on, param_names):
 
     return dft, dfdata, return_dict
 
-def simulate_model(n_sim, n_batch, sims_savename, priors, simulator, inference, device="cpu", batched=True):
+def simulate_model_old(n_sim, n_batch, sims_savename, priors, simulator, inference, device="cpu", batched=True):
     import os
     from tqdm import tqdm
 
@@ -736,6 +736,61 @@ def simulate_model(n_sim, n_batch, sims_savename, priors, simulator, inference, 
 
     torch.save({'theta': torch.cat(all_theta), 'x': torch.cat(all_x)}, save_path)
     print(f"All {num_simulations} simulations saved to '{save_path}'")
+
+def simulate_model(n_sim, n_batch, sims_savename, priors, simulator, inference, device="cpu", batched=True):
+    import h5py
+    from tqdm import tqdm
+
+    with h5py.File(sims_savename, "w") as f:
+        
+        theta_dim = priors.sample((1,)).shape[-1]
+        x_example = simulator(priors.sample((1,)).to(device))
+        x_shape = x_example.shape[1:] if x_example.ndim > 1 else (x_example.shape[-1],)
+
+        theta_ds = f.create_dataset(
+            "theta",
+            shape=(0, theta_dim),
+            maxshape=(None, theta_dim),
+            dtype="float32",
+            chunks=True,
+        )
+
+        x_ds = f.create_dataset(
+            "x",
+            shape=(0, *x_shape),
+            maxshape=(None, *x_shape),
+            dtype="float32",
+            chunks=True,
+        )
+
+        cursor = 0
+
+        with tqdm(total=n_sim, desc="Running simulations", unit="sim") as pbar:
+            for start in range(0, n_sim, n_batch):
+
+                current_bs = min(n_batch, n_sim - start)
+
+                theta_batch = priors.sample((current_bs,)).to(device)
+
+                if batched:
+                    x_batch = simulator(theta_batch)
+                else:
+                    x_batch = torch.stack([simulator(t) for t in theta_batch])
+
+                theta_np = theta_batch.cpu().numpy()
+                x_np = x_batch.cpu().numpy()
+
+                # resize datasets
+                theta_ds.resize(cursor + current_bs, axis=0)
+                x_ds.resize(cursor + current_bs, axis=0)
+
+                # write batch
+                theta_ds[cursor:cursor + current_bs] = theta_np
+                x_ds[cursor:cursor + current_bs] = x_np
+
+                cursor += current_bs
+                pbar.update(current_bs)
+
 
 def train_spne(prior, x):
 
