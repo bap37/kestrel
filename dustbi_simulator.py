@@ -446,7 +446,6 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
     return batched_simulator
 
 
-    
 def parameter_generation(list_of_parameter_names, dicts):
     
     empty_list = []
@@ -456,12 +455,16 @@ def parameter_generation(list_of_parameter_names, dicts):
         if name in split_dict.keys():
             evol_type = (split_dict[name][0])
             if evol_type == 'Stepwise':
-                split = (split_dict[name][1])
-                empty_list.append(name+"_HIGH_"+split)
+                if name == "STEP":  #hacky
+                    pass
+                else:
+                    split = (split_dict[name][1])
+                    empty_list.append(name+"_HIGH_"+split)
             elif evol_type == 'Linear':
                 empty_list.append(name+"_EVOL_"+split)
         empty_list.append(name)
     return empty_list
+
 
 
 def validate_order(param_names, function_dict): 
@@ -500,12 +503,21 @@ def unspool_labels(list_of_parameter_names, dicts, latex_dict, function_dict):
     params_to_fit = parameter_generation(list_of_parameter_names, dicts)
     
     for name in params_to_fit:
+
         if "_HIGH_" in name:
             name = name.split("_HIGH_")[0]
             high_flag = True
-   
-        func_name = (function_dict[name].__name__)
-        func_params = latex_dict[func_name] ; pname = latex_dict[name]
+
+        try:
+            func_name = (function_dict[name].__name__)
+            func_params = latex_dict[func_name] ; pname = latex_dict[name]
+        except KeyError: #HackY!
+            if name == "STEP":
+                pname = "STEP"
+                func_params = [r"$\gamma$"]
+            else:
+                print("No idea what you passed me")
+                
         
         for _ in func_params:
             if high_flag:
