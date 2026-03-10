@@ -60,6 +60,9 @@ def build_layout(param_names, dicts):
     for i, name in enumerate(param_names):
 
         base = name.split("_HIGH_")[0]
+        if base == "STEP":
+            continue
+        
         funcname = function_dict[base].__name__
 
         if funcname == "DistGaussian":
@@ -300,7 +303,6 @@ def make_simulator(layout, df, param_names, parameters_to_condition_on, dicts, d
         return simulator(theta, layout, params_to_fit, parameters_to_condition_on, df, df_tensor, dicts, dfdata, debug)
 
     return simulator_with_input
-
 
 def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
                            dicts, dfdata, sub_batch=10, device="cpu"):
