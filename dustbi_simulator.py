@@ -318,7 +318,7 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
         col: torch.tensor(df[col].to_numpy(), dtype=torch.float32, device=device)
         for col in all_cols
     }
-
+    
     # Pre-stack output columns for fast batched indexing
     output_stack = torch.stack(
         [df_tensor[col] for col in parameters_to_condition_on], dim=-1

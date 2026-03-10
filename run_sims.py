@@ -140,13 +140,6 @@ if __name__ == "__main__":
         print("We are temporarily not standardising data.")
         #df, dfdata = standardise_data(df, dfdata, parameters_to_condition_on)
 
-        simulatinator = make_simulator(layout, df, param_names,
-                                   parameters_to_condition_on, dicts,
-                                   dfdata, device=device)
-
-        simulation_wrapper = process_simulator(simulatinator, prior,
-                                               prior_returns_numpy)
-        check_sbi_inputs(simulation_wrapper, prior)
 
         sim_for_training = make_batched_simulator(layout, df,
                                 param_names,parameters_to_condition_on,
@@ -190,7 +183,8 @@ if __name__ == "__main__":
                 # Train only on this chunk
                 density_estimator = inference.train(
                     validation_fraction=0.1,
-                    force_first_round_loss=True  # prior samples; keeps training consistent
+                    force_first_round_loss=True,  # prior samples; keeps training consistent
+                    training_batch_size=64
                 )
 
                 # Clear simulations from inference to save memory
@@ -199,11 +193,11 @@ if __name__ == "__main__":
 
                 print(f"Chunk {start}:{end} trained and cleared from memory.")
 
-        # Build posterior from final density estimator
-        posterior = inference.build_posterior(density_estimator)
+                # Build posterior from final density estimator
+                posterior = inference.build_posterior(density_estimator)
 
-        with open(posterior_savename, "wb") as handle:
-            pickle.dump(posterior, handle)
+                with open(posterior_savename, "wb") as handle:
+                    pickle.dump(posterior, handle)
 
         print(f"Posterior saved to {posterior_savename}")
         plot_loss(inference, posterior_savename.replace(".pt", "_loss.pdf"))
