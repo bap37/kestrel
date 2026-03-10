@@ -62,5 +62,5 @@ Latex_Names:
     SIM_RV:           r"$R_V$"
     SIM_EBV:          r"$EBV$"
     SIM_x1:           r"$x_1$"
-
+    STEP:             r"$\gamma$"
 
