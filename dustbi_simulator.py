@@ -57,10 +57,13 @@ def build_layout(param_names, dicts):
         "stepwise": [],
     }
 
+    params_to_avoid = ['STEP', 'SCATTER']
+
     for i, name in enumerate(param_names):
 
         base = name.split("_HIGH_")[0]
-        if base == "STEP":
+
+        if base in params_to_avoid:
             continue
         
         funcname = function_dict[base].__name__
@@ -291,7 +294,6 @@ def make_simulator(layout, df, param_names, parameters_to_condition_on, dicts, d
 
     splits = list({v[1] for v in split_dict.values()}) #spools out split_dict parameters.
 
-
     params_to_fit = parameter_generation(param_names, dicts)
 
     df_tensor = {
@@ -309,11 +311,14 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
     bounds_dict, function_dict, split_dict, priors_dict = dicts
     validate_order(param_names, function_dict)
 
+    params_to_avoid = ['STEP', 'SCATTER']
+
     splits = list({v[1] for v in split_dict.values()}) #spools out split_dict parameters.
 
     # Pre-compute ALL tensor columns ONCE
     all_cols = list(set(list(priors_dict.keys()) + splits + parameters_to_condition_on))
-    all_cols.remove("STEP")
+    for name in params_to_avoid:
+        all_cols.remove(name)
     df_tensor = {
         col: torch.tensor(df[col].to_numpy(), dtype=torch.float32, device=device)
         for col in all_cols
@@ -324,17 +329,25 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
         [df_tensor[col] for col in parameters_to_condition_on], dim=-1
     )  # (N, n_features)
 
+    if "STEP" in param_names:
     #Calculate indices for things that need the "mass" step added to them. 
-    steps_to_add = ['MU', 'MURES', 'mB']
-    step_indices = torch.tensor(
-        [parameters_to_condition_on.index(c) for c in steps_to_add],
-        dtype=torch.long,
-        device=device
-    )
+        steps_to_add = ['MU', 'MURES', 'mB']
+        step_indices = torch.tensor(
+            [parameters_to_condition_on.index(c) for c in steps_to_add],
+            dtype=torch.long,
+            device=device
+        )
 
-    y_idx = parameters_to_condition_on.index(split_dict["STEP"][1])
-    step_threshold = split_dict["STEP"][2]
+        y_idx = parameters_to_condition_on.index(split_dict["STEP"][1])
+        step_threshold = split_dict["STEP"][2]
 
+    if "SCATTER" in param_names:
+        steps_to_add = ['MU', 'MURES', 'mB']
+        scatter_indices = torch.tensor(
+            [parameters_to_condition_on.index(c) for c in steps_to_add],
+            dtype=torch.long,
+            device=device
+        )
 
     N = len(df)
     n_target = len(dfdata)
@@ -420,10 +433,17 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
 
         #then add whatever proposed step is necessary.
         if "STEP" in param_names:
-            gamma = theta[:, -1].unsqueeze(1)       # (B,1)
+            temp_index = param_names.index("STEP")
+            gamma = theta[:, temp_index].unsqueeze(1)       # (B,1)
             y = result[:, :, y_idx]                 # (B, n_target)
             step = torch.where(y < step_threshold, -gamma, gamma)  # (B, n_target)
             result[:, :, step_indices] += step.unsqueeze(-1)
+
+        #Then if grey scatter is enabled, add it to this nonsense.            
+        if "SCATTER" in param_names:
+            temp_index = param_names.index("SCATTER")
+            scatter = theta[:, temp_index].unsqueeze(1)                 
+            result[:, :, scatter_indices] += scatter.unsqueeze(-1)
 
         # --- Fill bad simulations with NaN ---
         result[bad_mask] = float('nan')
@@ -472,6 +492,8 @@ def validate_order(param_names, function_dict):
     Function that ensures the proper ordering of parameters; all exponential functions must come after all Gaussian functions.
     """
     
+    params_to_avoid = ["SCATTER", "STEP"]
+
     #Will need to add other functions in as they are implemented; make sure that Exponential is always last 
     order_priority = {
         DistDoubleGaussian: 3,
@@ -480,17 +502,14 @@ def validate_order(param_names, function_dict):
     }
 
     #Temporarily strip "step" from param names, since it's implemented differently.
-    new_list = param_names.copy()
-    if "STEP" in new_list:
-        new_list.remove("STEP")
+    new_list = [x for x in param_names if x not in params_to_avoid] 
 
 
     priorities = [order_priority[function_dict[p]] for p in new_list]
 
     if priorities != sorted(priorities):
         raise ValueError("Please ensure that any Exponential distribution strictly comes after all Gaussian distributions.")
-    elif (param_names[-1] != "STEP") & ("STEP" in param_names):
-        raise ValueError("Please ensure that the step parameter is the last entry in param_names.")
+
         
     return True
 
@@ -831,12 +850,12 @@ def prior_generator(param_names, dicts, device='cpu'):
     bounds_dict, function_dict, split_dict, priors_dict = dicts
     list_o_priors = []
     
+    params_to_avoid = ['EVOL', 'STEP', 'SCATTER']
+
     for name in param_names:
         #We want to parse evolution parameters separately, so break the loop if we find one. 
-        if "EVOL" in name:
-            continue 
-        if "STEP" in name:
-            continue 
+        if name in params_to_avoid:
+            continue
 
         if "_HIGH_" in name:
             name = name.split("_HIGH_")[0]
@@ -918,6 +937,15 @@ def prior_generator(param_names, dicts, device='cpu'):
                     offset_prior, slope_prior = TwoDBoxPrior(offset0, slope0)
                     list_o_priors.extend([offset_prior, slope_prior])
 
+
+    if "SCATTER" in param_names:
+        scatter0 = priors_dict["SCATTER"][0]
+
+        scatter_prior = BoxUniform(
+            low= torch.tensor([scatter0[0]], dtype=torch.float32, device=device), 
+            high=torch.tensor([scatter0[1]], dtype=torch.float32, device=device)
+            )
+        list_o_priors.extend([scatter_prior])
 
     if "STEP" in param_names:
         step0 = priors_dict["STEP"][0]

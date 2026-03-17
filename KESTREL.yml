@@ -4,6 +4,7 @@ param_names:
     SIM_x1
     SIM_EBV
     STEP
+    SCATTER
 
 parameters_to_condition_on:
     ['c', 'mB', 'x1', 'zHD', 'cERR', 'mBERR', 'x1ERR', 'MU', 'HOST_LOGMASS', 'MURES']
@@ -50,6 +51,7 @@ Priors:
     SIM_beta: ["(1,2)", "(0.05, 0.3)"]
     SIM_x1:   ["(-2,2)", "(0.2, 1)"]
     STEP:     ["(0,0.2)"]
+    SCATTER:  ["(0,0.1)"]
 
 
 
@@ -63,4 +65,4 @@ Latex_Names:
     SIM_EBV:          r"$EBV$"
     SIM_x1:           r"$x_1$"
     STEP:             r"$\gamma$"
-
+    SCATTER:          r"$\sigma_{\rm int}$"
