@@ -162,42 +162,24 @@ if __name__ == "__main__":
 
         import h5py
 
-        chunk_size=10000
-        
         with h5py.File(sims_savename, "r") as f:
-            theta_total = f["theta"]
-            x_total = f["x"]
-            n = theta_total.shape[0]
+            theta = torch.tensor(f["theta"][:])
+            x = torch.tensor(f["x"][:])
 
-            for start in range(0, n, chunk_size):
-                end = min(start + chunk_size, n)
-                print(f"Processing chunk {start}:{end}")
-                
-                # Load chunk
-                theta_batch = torch.tensor(theta_total[start:end]).cuda()
-                x_batch = torch.tensor(x_total[start:end]).cuda()
+        print(f"Loaded {theta.shape[0]} simulations from {sims_savename}")
 
-                # Append simulations
-                inference.append_simulations(theta_batch, x_batch)
+        inference.append_simulations(theta, x, data_device="cpu")
 
-                # Train only on this chunk
-                density_estimator = inference.train(
-                    validation_fraction=0.1,
-                    force_first_round_loss=True,  # prior samples; keeps training consistent
-                    training_batch_size=64
-                )
+        density_estimator = inference.train(
+            validation_fraction=0.1,
+            force_first_round_loss=True,
+            training_batch_size=64,
+        )
 
-                # Clear simulations from inference to save memory
-                inference._theta = []
-                inference._x = []
+        posterior = inference.build_posterior(density_estimator)
 
-                print(f"Chunk {start}:{end} trained and cleared from memory.")
-
-                # Build posterior from final density estimator
-                posterior = inference.build_posterior(density_estimator)
-
-                with open(posterior_savename, "wb") as handle:
-                    pickle.dump(posterior, handle)
+        with open(posterior_savename, "wb") as handle:
+            pickle.dump(posterior, handle)
 
         print(f"Posterior saved to {posterior_savename}")
         plot_loss(inference, posterior_savename.replace(".pt", "_loss.pdf"))
