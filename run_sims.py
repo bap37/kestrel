@@ -182,4 +182,5 @@ if __name__ == "__main__":
             pickle.dump(posterior, handle)
 
         print(f"Posterior saved to {posterior_savename}")
+        
         plot_loss(inference, posterior_savename.replace(".pt", "_loss.pdf"))

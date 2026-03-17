@@ -57,8 +57,8 @@ def plot_loss(inference, savename):
     train_losses = inference._summary["training_loss"]
     val_losses = inference._summary["validation_loss"]
 
-    plt.plot(train_losses, label="train")
-    plt.plot(val_losses, label="validation")
+    plt.plot(train_losses, label="train", lw=3,)
+    plt.plot(val_losses, label="validation", lw=3, ls='--')
     plt.xlabel("Epoch")
     plt.ylabel("Loss")
     plt.legend(frameon=False, labelcolor="linecolor", fontsize=14)

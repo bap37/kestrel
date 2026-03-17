@@ -446,6 +446,7 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
     return batched_simulator
 
 
+
 def parameter_generation(list_of_parameter_names, dicts):
     
     empty_list = []
@@ -466,7 +467,6 @@ def parameter_generation(list_of_parameter_names, dicts):
     return empty_list
 
 
-
 def validate_order(param_names, function_dict): 
     """
     Function that ensures the proper ordering of parameters; all exponential functions must come after all Gaussian functions.
@@ -481,13 +481,15 @@ def validate_order(param_names, function_dict):
 
     #Temporarily strip "step" from param names, since it's implemented differently.
     new_list = param_names.copy()
-    new_list.remove("STEP")
+    if "STEP" in new_list:
+        new_list.remove("STEP")
+
 
     priorities = [order_priority[function_dict[p]] for p in new_list]
 
     if priorities != sorted(priorities):
         raise ValueError("Please ensure that any Exponential distribution strictly comes after all Gaussian distributions.")
-    elif param_names[-1] != "STEP":
+    elif (param_names[-1] != "STEP") & ("STEP" in param_names):
         raise ValueError("Please ensure that the step parameter is the last entry in param_names.")
         
     return True
