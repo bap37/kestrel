@@ -3,6 +3,7 @@ from Functions import *
 from dustbi_nn import PopulationEmbeddingFull
 from dustbi_plotting import plot_loss
 import yaml, os, argparse
+import shutil
 import pickle
 
 #cosmology imports
@@ -49,7 +50,7 @@ sims_savename = infos['sim_parameters']['simname']
 posterior_savename = infos['sim_parameters']['posteriorname']
 
    
-dicts = [infos['Boundaries'], infos['Functions'], infos['Splits'], infos['Priors'], infos['Correlations']]
+dicts = [infos['Functions'], infos['Splits'], infos['Priors'], infos['Correlations']]
 
 ##############################
 # Load information and setup
@@ -144,6 +145,8 @@ if __name__ == "__main__":
         print(f"Training {n_sim} simulations and saving to {sims_savename}")
         simulate_model(n_sim, n_batch, sims_savename, priors, sim_for_training, inference, device=device, batched=batched)
         print("Quitting after simulation stage.")
+        shutil.copy("KESTREL.yml", sims_savename.replace(".h5", ".yml.bk"))
+
         quit()
     ################
     if args.TRAIN:
