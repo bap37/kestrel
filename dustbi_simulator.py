@@ -256,17 +256,22 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
         # --- Batched output tensor indexing ---
         result = output_stack[resampled_idx]  # (B, n_target, n_features)
 
-        #then add whatever proposed step is necessary.
+        #then add whatever proposed step is necessary; I will need to come back to this to make it less hard-coded
         if "STEP" in param_names:
-            temp_index = param_names.index("STEP")
+            if "SCATTER" in param_names:
+                temp_index = -2
+            else:
+                temp_index = -1
             gamma = theta[:, temp_index].unsqueeze(1)       # (B,1)
             y = result[:, :, y_idx]                 # (B, n_target)
-            step = torch.where(y < step_threshold, -gamma, gamma)  # (B, n_target)
+            step = torch.where(y < step_threshold, -gamma/2, gamma/2)  # (B, n_target)
             result[:, :, step_indices] += step.unsqueeze(-1)
+            print(gamma)
 
+        
         #Then if grey scatter is enabled, add it to this nonsense.            
         if "SCATTER" in param_names:
-            temp_index = param_names.index("SCATTER")
+            temp_index = -1
             scatter = theta[:, temp_index].unsqueeze(1)                 
             result[:, :, scatter_indices] += scatter.unsqueeze(-1)
 
@@ -293,6 +298,7 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
         return torch.cat(results, dim=0)
 
     return batched_simulator
+
 
 
 #####################
