@@ -129,174 +129,6 @@ def build_layout(param_names, dicts):
 ## BEGIN SIMULATOR
 #######################
 
-def simulator(theta: torch.Tensor, layout, param_names, parameters_to_condition_on,
-               df, df_tensor, dicts, dfdata, debug=False):
-
-    #Unravel a bunch of necessary information
-    function_dict, split_dict, priors_dict, corr_dict = dicts
-    high_flag = True #Set split flag early in case we need to keep track of parameters in split_dict
-
-    #salt_mcmc = start_distance()
-    
-    #torch dimensionality nonsense 
-    if theta.ndim == 1: theta = theta.unsqueeze(0)
-    batch_size = theta.shape[0] ; device = theta.device
-
-    #set up error catching for simulator
-    numdim = len(parameters_to_condition_on)#+1 BRODIE 
-    BAD_SIMULATION = torch.full((len(dfdata), numdim), float('nan'), device=device)
-
-    #Initialise weights
-    N = len(df)
-    joint_weights = torch.ones(batch_size, N, device=device)
-
-    #########################
-    # Once without if/then statements
-    #########################
-    for dist in layout.slices:
-
-        if layout.counts[dist] == 0:
-            continue 
-        
-        theta_dist = theta[:, layout.slices[dist]]
-        n_param = layout.n_params[dist]
-
-        theta_dist = theta_dist.view(batch_size, layout.counts[dist], n_param)
-
-        for i in range(layout.counts[dist]):
-
-            param_index = layout.idx[dist][i]
-            name = param_names[param_index]
-
-            if "_HIGH_" in name:
-                name = name.split("_HIGH_")[0]
-                high_flag = True
-
-            shape = function_dict[name]
-            x = df_tensor[name]
-
-            theta_i = theta_dist[:, i, :]
-
-            ########################
-            # Split Logic
-            ########################
-
-            if name in split_dict:
-
-                _, split_param, split_val = split_dict[name]
-                split_tensor = df_tensor[split_param]
-
-                if high_flag:
-                    mask = split_tensor >= split_val
-                    high_flag = False
-                else:
-                    mask = split_tensor < split_val
-
-                weights = torch.ones(batch_size, N, device=device)
-
-                x_sub = x[mask]
-                density_sub = shape(x_sub, theta_i)
-                density_sub = torch.clamp(density_sub, min=0.0)
-
-                if density_sub.ndim == 1:
-                    density_sub = density_sub.unsqueeze(0)
-
-                weights[:, mask] = density_sub
-
-            else:
-
-                density = shape(x, theta_i)
-                weights = torch.clamp(density, min=0.0)
-
-            if weights.ndim == 1:
-                weights = weights.unsqueeze(0)
-
-            joint_weights *= weights
-
-    # --------------------------------------------------
-    # Normalise + Resample Once
-    # --------------------------------------------------
-
-    #The final weighted sum.
-    weight_sum = joint_weights.sum(dim=1, keepdim=True)
-
-    #Catch any shizwizz and return a bad simulation
-    if weight_sum == 0:
-        if debug: print("ERROR: weight_sum = 0 for", theta)
-        return BAD_SIMULATION
-
-    normalized_weights = joint_weights / weight_sum
-
-    ess = 1.0 / torch.sum(normalized_weights ** 2, dim=1)
-    n_samples = int(torch.ceil(ess).item())
-
-    #The re-sampling occurs here; grabs all the desired indices that we've built up from our importance sampler.
-    resampled_idx = torch.multinomial(
-        normalized_weights,
-        num_samples=n_samples,
-        replacement=True
-    )
-
-    #Then dimension down and sample from the input data frame.
-    indices = resampled_idx.squeeze(0).cpu().numpy()
-    dft = df.iloc[indices]
-
-    try:
-        dft = dft.sample(n=len(dfdata))
-    except ValueError:
-        if debug: print("ERROR: not enough SNe for", theta)
-        return BAD_SIMULATION #If there's not enough samples left, it's a bad simulation. 
-
-    # --------------------------------------------------
-    # Add distance into here
-    # --------------------------------------------------
-
-    output_distribution = preprocess_input_distribution(
-        dft, parameters_to_condition_on#+['x0', 'x0ERR', 'MU']
-    )
-    #BRODIE
-    #salt_mcmc.run(
-    #    output_distribution['x0'],
-    #    output_distribution['x0ERR'],
-    #    output_distribution['x1'],
-    #    output_distribution['x1ERR'],
-    #    output_distribution['c'],
-    #    output_distribution['cERR'],
-    #    output_distribution['MU']
-    #    )
-
-    #MURES = add_distance(salt_mcmc, output_distribution)
-    #output_distribution['MURES'] = MURES
-    
-    
-    # --------------------------------------------------
-    # Final Processing 
-    # --------------------------------------------------
-
-    #parameters_to_condition_on = parameters_to_condition_on+['MURES']
-    #And stack the conditioned parameters
-    x = torch.stack(
-    [output_distribution[p] for p in parameters_to_condition_on],
-    dim=-1
-)
-    
-    #debug flag will helpfully return a pandas dataframe containing your desired distribution
-    if debug:
-        #dft['MURES'] = MURES
-        return dft
-    
-    return x
-
-
-#####################
-### BEGIN SUPPORT FUNCTIONS
-###########################
-
-def preprocess_input_distribution(df, cols):
-    return {
-        col: torch.tensor(df[col].to_numpy(), dtype=torch.float32)
-        for col in cols
-    }
 
 def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
                            dicts, dfdata, sub_batch=10, device="cpu", debug=False):
@@ -323,7 +155,7 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
 
     if "STEP" in param_names:
     #Calculate indices for things that need the "mass" step added to them. 
-        steps_to_add = ['MU', 'MURES', 'mB']
+        steps_to_add = ['MU', 'MURES']
         step_indices = torch.tensor(
             [parameters_to_condition_on.index(c) for c in steps_to_add],
             dtype=torch.long,
@@ -461,6 +293,17 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
         return torch.cat(results, dim=0)
 
     return batched_simulator
+
+
+#####################
+### BEGIN SUPPORT FUNCTIONS
+###########################
+
+def preprocess_input_distribution(df, cols):
+    return {
+        col: torch.tensor(df[col].to_numpy(), dtype=torch.float32)
+        for col in cols
+    }
 
 
 def parameter_generation(list_of_parameter_names, dicts):
@@ -627,9 +470,13 @@ def load_data(simfilename, datfilename):
                              comment="#", sep=r'\s+')
     dfdata['MU'] = Planck18.distmod(dfdata.zHD.values).value
 
-    
+    print("Only loading DES Data")
     dfdata = dfdata.loc[dfdata.IDSURVEY == 10]
     dfdata = dfdata.loc[dfdata.PROB_SNNV19 >= 0.5]
+
+    print("Ensuring only valid log masses.")
+    dfdata = dfdata.loc[dfdata.HOST_LOGMASS > 0]
+    df = df.loc[df.HOST_LOGMASS > 0 ]
 
     return df, dfdata
 
