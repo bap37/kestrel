@@ -4,27 +4,19 @@ param_names:
     SIM_x1
     SIM_EBV
     STEP
-    SCATTER
 
 parameters_to_condition_on:
     ['c', 'mB', 'x1', 'zHD', 'cERR', 'mBERR', 'x1ERR', 'MU', 'HOST_LOGMASS', 'MURES']
 
 sim_parameters:
-    n_sim:   500
+    n_sim:   2000
     n_batch: 500
-    simname: 'garb.h5'
-    posteriorname: 'posterior.v3.pt'
+    simname: 'simulations_v4.h5'
+    posteriorname: 'posterior.v4.pt'
 
 #########################
 # Dictionaries 
 #########################
-
-Boundaries:
-    SIM_c:    (-0.5,0.5) #A tuple containing the lower and upper bounds
-    SIM_RV:   (1.5, 5)
-    SIM_EBV:  (0,1)
-    SIM_beta: (0.5,4)
-    SIM_x1:   (-5, 5)
 
 Functions:
     SIM_c:    DistGaussian  #The shape of this parameter.
@@ -33,12 +25,20 @@ Functions:
     SIM_beta: DistGaussian
     SIM_x1:   DistGaussian
 
-
 Splits:
     SIM_RV:  ["Stepwise","HOST_LOGMASS", 10] #A list containing the split parameter and location
     SIM_EBV: ["Stepwise","HOST_LOGMASS", 10]
     STEP:    ["Stepwise", "HOST_LOGMASS", 10]
 
+#If using higher-order functions such as DistLogistic, which require two parameters
+#this dictionary tells the correlation parameter.
+#ONLY works when/if calling 2-parameter functions. 
+Correlations:
+    SIM_c:    None
+    SIM_RV:   None
+    SIM_EBV:  None
+    SIM_beta: None
+    SIM_x1:   None
 
 # We assume BoxUniform priors for our parameters; 
 # so each tuple needs to include the lower and upper bound you expect for that parameter. 
@@ -46,12 +46,13 @@ Splits:
 
 Priors:
     SIM_c:    ["(-.1, 0)", "(0.02, 0.1)"]
-    SIM_RV:   ["(1.5,4)", "(0.5,2)"]
     SIM_EBV:  ["(0.05, 0.5)"]
     SIM_beta: ["(1,2)", "(0.05, 0.3)"]
     SIM_x1:   ["(-2,2)", "(0.2, 1)"]
     STEP:     ["(0,0.2)"]
     SCATTER:  ["(0,0.1)"]
+    SIM_RV:   ["(1.5,4)", "(0.5,2)"]
+#    SIM_RV:   ["(1,3)","(-1.5, 2.1)", "(0,.5)"] #L, k, sigma
 
 
 
@@ -66,3 +67,4 @@ Latex_Names:
     SIM_x1:           r"$x_1$"
     STEP:             r"$\gamma$"
     SCATTER:          r"$\sigma_{\rm int}$"
+    DistLogistic:     [r"$L$", r"$k$", r"$\sigma$"]
