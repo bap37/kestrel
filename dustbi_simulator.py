@@ -37,7 +37,7 @@ def build_theta_layout(counts, n_params):
     
 def build_layout(param_names, dicts):
 
-    bounds_dict, function_dict, split_dict, priors_dict = dicts
+    bounds_dict, function_dict, split_dict, priors_dict, corr_dict = dicts
 
     idx = {
         "gauss": [],
@@ -121,7 +121,7 @@ def simulator(theta: torch.Tensor, layout, param_names, parameters_to_condition_
                df, df_tensor, dicts, dfdata, debug=False):
 
     #Unravel a bunch of necessary information
-    bounds_dict, function_dict, split_dict, priors_dict = dicts
+    bounds_dict, function_dict, split_dict, priors_dict, corr_dict = dicts
     high_flag = True #Set split flag early in case we need to keep track of parameters in split_dict
 
     #salt_mcmc = start_distance()
@@ -288,7 +288,7 @@ def preprocess_input_distribution(df, cols):
 
 def make_simulator(layout, df, param_names, parameters_to_condition_on, dicts, dfdata, debug=False, device="cpu"):
 
-    _, function_dict, split_dict, priors_dict = dicts
+    bounds_dict, function_dict, split_dict, priors_dict, corr_dict = dicts
     
     validate_order(param_names, function_dict) #force correct parameter order
 
@@ -306,9 +306,11 @@ def make_simulator(layout, df, param_names, parameters_to_condition_on, dicts, d
 
     return simulator_with_input
 
+
+
 def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
-                           dicts, dfdata, sub_batch=10, device="cpu"):
-    bounds_dict, function_dict, split_dict, priors_dict = dicts
+                           dicts, dfdata, sub_batch=10, device="cpu", debug=False):
+    bounds_dict, function_dict, split_dict, priors_dict, corr_dict = dicts
     validate_order(param_names, function_dict)
 
     params_to_avoid = ['STEP', 'SCATTER']
@@ -373,7 +375,6 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
             for i in range(layout.counts[dist]):
                 name = layout.order[dist][i]
 
-                
                 if "_HIGH_" in name:
                     name = name.split("_HIGH_")[0]
                     high_flag = True
@@ -381,6 +382,8 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
                 theta_i = theta_dist[:, i, :]
                 x = df_tensor[name]  # (N,)
                 batch_size = B
+                #Very quickly scan the correlation dictionary for any correlations; otherwise set to none
+                correlation = df_tensor.get(corr_dict.get(name)) if corr_dict.get(name) else None
 
                 if name in split_dict:
                     _, split_param, split_val = split_dict[name]
@@ -395,7 +398,7 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
                     weights = torch.ones(batch_size, N, device=device)
 
                     x_sub = x[mask]  # still on GPU
-                    density_sub = function_dict[name](x_sub, theta_i)
+                    density_sub = function_dict[name](x_sub, theta_i, correlation)
                     density_sub = torch.clamp(density_sub, min=0.0)
 
                     if density_sub.ndim == 1:
@@ -403,7 +406,7 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
                     weights[:, mask] = density_sub
 
                 else:
-                    density = function_dict[name](x, theta_i)
+                    density = function_dict[name](x, theta_i, correlation)
                     weights = torch.clamp(density, min=0.0)
 
                 if weights.ndim == 1:
@@ -448,6 +451,10 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
         # --- Fill bad simulations with NaN ---
         result[bad_mask] = float('nan')
 
+        if debug:
+            dft = df.iloc[resampled_idx.squeeze(0)]
+            return dft
+
         return result
 
     
@@ -466,11 +473,10 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
     return batched_simulator
 
 
-
 def parameter_generation(list_of_parameter_names, dicts):
     
     empty_list = []
-    bounds_dict, function_dict, split_dict, priors_dict = dicts
+    bounds_dict, function_dict, split_dict, priors_dict, corr_dict = dicts
     
     for name in list_of_parameter_names:
         if name in split_dict.keys():
@@ -496,6 +502,7 @@ def validate_order(param_names, function_dict):
 
     #Will need to add other functions in as they are implemented; make sure that Exponential is always last 
     order_priority = {
+        DistLogistic: 2,
         DistDoubleGaussian: 3,
         DistGaussian: 4,
         DistExponential: 5,
@@ -569,36 +576,15 @@ def split_outputs(output_distribution, split_tensor, split_val, param_list):
     return torch.stack(out, dim=-1)
 
 
-def preprocess_data(param_names, parameters_to_condition_on, split_dict, dfdata, ):
+def preprocess_data(parameters_to_condition_on, dfdata, ):
     
     output_distribution = preprocess_input_distribution(dfdata, parameters_to_condition_on)
 
-    if any(p in split_dict for p in param_names): #check early to see if we need to split anything. 
+    x = torch.stack(
+        [output_distribution[p] for p in parameters_to_condition_on],
+        dim=-1
+    )
     
-        matching = [p for p in param_names if p in split_dict]
-        name = matching[0]
-
-        split_param = split_dict[name][0]
-        split_val   = split_dict[name][1]
-
-        split_tensor = torch.tensor(
-            dfdata[split_param].to_numpy(),
-            dtype=torch.float32,
-            )
-
-        x = split_outputs(
-            output_distribution,
-            split_tensor,
-            split_val,
-            parameters_to_condition_on
-            )
-
-    else:
-        x = torch.stack(
-            [output_distribution[p] for p in parameters_to_condition_on],
-            dim=-1
-        )
-        
     return x
 
 
@@ -607,6 +593,14 @@ def load_kestrel(filename):
     import ast
     import yaml
     
+    FUNCTION_REGISTRY = {
+        "DistGaussian": DistGaussian,
+        "DistExponential": DistExponential,
+        "DistLogistic": DistLogistic,
+        "DistDoubleGaussian": DistDoubleGaussian
+    }
+
+
     with open(filename, 'r') as file:
         raw_yaml = yaml.safe_load(file)
 
@@ -620,6 +614,11 @@ def load_kestrel(filename):
         for n in range(len(_priors[entry])):
             raw_yaml['Priors'][entry][n] = ast.literal_eval(raw_yaml['Priors'][entry][n])
             
+    raw_yaml['Functions'] = {
+        name: FUNCTION_REGISTRY[func_name]
+        for name, func_name in raw_yaml["Functions"].items()
+        }
+
     return raw_yaml
 
 def load_data(simfilename, datfilename):
@@ -847,7 +846,7 @@ def distancinator(x0_obs, x0_err, x1_obs, x1_err, c_obs, c_err, dist_mod):
 
 def prior_generator(param_names, dicts, device='cpu'):
 
-    bounds_dict, function_dict, split_dict, priors_dict = dicts
+    bounds_dict, function_dict, split_dict, priors_dict, corr_dict = dicts
     list_o_priors = []
     
     params_to_avoid = ['EVOL', 'STEP', 'SCATTER']
@@ -936,6 +935,22 @@ def prior_generator(param_names, dicts, device='cpu'):
                     offset0, slope0 = priors_dict[name+"_EVOL"]
                     offset_prior, slope_prior = TwoDBoxPrior(offset0, slope0)
                     list_o_priors.extend([offset_prior, slope_prior])
+
+        if func_name == "DistLogistic":
+            L0, k0, sigma0 = priors_dict[name]
+            L_prior = BoxUniform(
+                low= torch.tensor([L0[0]], dtype=torch.float32, device=device),
+                high=torch.tensor([L0[1]], dtype=torch.float32, device=device)
+                )
+            k_prior = BoxUniform(
+                low= torch.tensor([k0[0]], dtype=torch.float32, device=device),
+                high=torch.tensor([k0[1]], dtype=torch.float32, device=device)
+                )
+            sigma_prior = BoxUniform(
+                low= torch.tensor([sigma0[0]], dtype=torch.float32, device=device),
+                high=torch.tensor([sigma0[1]], dtype=torch.float32, device=device)
+                )
+            list_o_priors.extend([L_prior, k_prior, sigma_prior])
 
 
     if "SCATTER" in param_names:

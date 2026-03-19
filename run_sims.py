@@ -47,15 +47,8 @@ n_batch = infos['sim_parameters']['n_batch']
 sims_savename = infos['sim_parameters']['simname']
 posterior_savename = infos['sim_parameters']['posteriorname']
 
-function_dict = {
-    "SIM_c"   : DistGaussian,
-    "SIM_RV"  : DistGaussian,
-    "SIM_EBV" : DistExponential,
-    "SIM_beta": DistGaussian,
-    "SIM_x1"  : DistGaussian,
-}
-    
-dicts = [infos['Boundaries'], function_dict, infos['Splits'], infos['Priors']]
+   
+dicts = [infos['Boundaries'], infos['Functions'], infos['Splits'], infos['Priors'], infos['Correlations']]
 
 ##############################
 # Load information and setup
@@ -172,9 +165,13 @@ if __name__ == "__main__":
                 end = min(start + chunk_size, n)
                 print(f"Processing chunk {start}:{end}")
                 
+                try:
                 # Load chunk
-                theta_batch = torch.tensor(theta_total[start:end]).cuda()
-                x_batch = torch.tensor(x_total[start:end]).cuda()
+                    theta_batch = torch.tensor(theta_total[start:end]).cuda()
+                    x_batch = torch.tensor(x_total[start:end]).cuda()
+                except AssertionError:
+                    theta_batch = torch.tensor(theta_total[start:end])
+                    x_batch = torch.tensor(x_total[start:end])
 
                 # Append simulations
                 inference.append_simulations(theta_batch, x_batch)
