@@ -38,7 +38,7 @@ def build_theta_layout(counts, n_params):
     
 def build_layout(param_names, dicts):
 
-    bounds_dict, function_dict, split_dict, priors_dict, corr_dict = dicts
+    function_dict, split_dict, priors_dict, corr_dict = dicts
 
     idx = {
         "gauss": [],
@@ -133,7 +133,7 @@ def simulator(theta: torch.Tensor, layout, param_names, parameters_to_condition_
                df, df_tensor, dicts, dfdata, debug=False):
 
     #Unravel a bunch of necessary information
-    bounds_dict, function_dict, split_dict, priors_dict, corr_dict = dicts
+    function_dict, split_dict, priors_dict, corr_dict = dicts
     high_flag = True #Set split flag early in case we need to keep track of parameters in split_dict
 
     #salt_mcmc = start_distance()
@@ -298,33 +298,10 @@ def preprocess_input_distribution(df, cols):
         for col in cols
     }
 
-def make_simulator(layout, df, param_names, parameters_to_condition_on, dicts, dfdata, debug=False, device="cpu"):
-
-    bounds_dict, function_dict, split_dict, priors_dict, corr_dict = dicts
-    
-    validate_order(param_names, function_dict) #force correct parameter order
-
-    splits = list({v[1] for v in split_dict.values()}) #spools out split_dict parameters.
-
-    params_to_fit = parameter_generation(param_names, dicts)
-
-    df_tensor = {
-        col: torch.tensor(df[col].to_numpy(), dtype=torch.float32, device=device)
-        for col in list(priors_dict.keys())+splits+parameters_to_condition_on
-    }
-
-    def simulator_with_input(theta):
-        return simulator(theta, layout, params_to_fit, parameters_to_condition_on, df, df_tensor, dicts, dfdata, debug)
-
-    return simulator_with_input
-
-
-
-
 def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
                            dicts, dfdata, sub_batch=10, device="cpu", debug=False):
-    bounds_dict, function_dict, split_dict, priors_dict, corr_dict = dicts
-    validate_order(param_names, function_dict)
+    function_dict, split_dict, priors_dict, corr_dict = dicts
+    validate_order(param_names, dicts)
 
     params_to_avoid = ['STEP', 'SCATTER']
 
@@ -489,7 +466,7 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
 def parameter_generation(list_of_parameter_names, dicts):
     
     empty_list = []
-    bounds_dict, function_dict, split_dict, priors_dict, corr_dict = dicts
+    function_dict, split_dict, priors_dict, corr_dict = dicts
     
     for name in list_of_parameter_names:
         if name in split_dict.keys():
@@ -506,11 +483,12 @@ def parameter_generation(list_of_parameter_names, dicts):
     return empty_list
 
 
-def validate_order(param_names, function_dict): 
+def validate_order(param_names, dicts): 
     """
-    Function that ensures the proper ordering of parameters; all exponential functions must come after all Gaussian functions.
+    Catchall error trapping function to be called during initialisation. 
     """
-    
+    function_dict, split_dict, priors_dict, corr_dict = dicts    
+
     params_to_avoid = ["SCATTER", "STEP"]
 
     #Will need to add other functions in as they are implemented; make sure that Exponential is always last 
@@ -523,16 +501,18 @@ def validate_order(param_names, function_dict):
 
     #Temporarily strip "step" from param names, since it's implemented differently.
     new_list = [x for x in param_names if x not in params_to_avoid] 
-
-
     priorities = [order_priority[function_dict[p]] for p in new_list]
 
+    #Make sure that all entries are in the correct order
     if priorities != sorted(priorities):
         raise ValueError(f"Please ensure that the parameters are give in the following order: {order_priority.values}")
 
-        
-    return True
+    #check to make sure that we don't have a split and Correlation enabled at the same time 
+    conflicts = [k for k in split_dict if k in corr_dict and corr_dict[k] != 'None']
+    if conflicts:
+        raise ValueError(f"Conflict detected for keys: {conflicts}")
 
+    return True
 
 def unspool_labels(list_of_parameter_names, dicts, latex_dict, function_dict):
     """
@@ -618,9 +598,6 @@ def load_kestrel(filename):
         raw_yaml = yaml.safe_load(file)
 
     raw_yaml['param_names'] = raw_yaml['param_names'].split(" ")
-        
-    for entry in raw_yaml['Boundaries']:
-        raw_yaml['Boundaries'][entry] = ast.literal_eval(raw_yaml['Boundaries'][entry])
         
     _priors = raw_yaml['Priors']
     for entry in _priors:
@@ -859,7 +836,7 @@ def distancinator(x0_obs, x0_err, x1_obs, x1_err, c_obs, c_err, dist_mod):
 
 def prior_generator(param_names, dicts, device='cpu'):
 
-    bounds_dict, function_dict, split_dict, priors_dict, corr_dict = dicts
+    function_dict, split_dict, priors_dict, corr_dict = dicts
     list_o_priors = []
     
     params_to_avoid = ['EVOL', 'STEP', 'SCATTER']
