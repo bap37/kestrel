@@ -5,7 +5,7 @@ import math
 # torch-compatible functions live in this code block; must start with "Dist"
 ##############
 
-def DistGaussian(x, theta):
+def DistGaussian(x, theta, correlation):
     """
     Gaussian likelihood for batched θ.
 
@@ -34,7 +34,7 @@ def DistGaussian(x, theta):
 
     return torch.exp(-0.5 * ((x - mu)/sigma)**2) / (sigma * math.sqrt(2.0 * math.pi))
 
-def DistExponential(x, theta):
+def DistExponential(x, theta, correlation):
     """
     Exponential likelihood for batched θ.
 
@@ -73,7 +73,7 @@ def DistExponential(x, theta):
     return weights
 
 
-def DistDoubleGaussian(x, theta):
+def DistDoubleGaussian(x, theta, correlation):
     """
     Gaussian likelihood for batched θ.
 
@@ -111,13 +111,46 @@ def DistDoubleGaussian(x, theta):
 
     return G1+G2
 
+def DistLogistic(x, theta, correlation):
+    """
+    Logistic-shaped likelihood for importance sampling.
 
+    x:           (N,) or (B, N)
+    theta:       (B, 3) -> [L, k, sigma]
+    correlation: (N,) or (B, N)
 
-########################
-# Functions below here have not been upgraded to use torch.
+    Returns:
+        (B, N) likelihood weights
+    """
+    x = torch.as_tensor(x, dtype=torch.float32, device=theta.device)
+    theta = torch.as_tensor(theta, dtype=torch.float32)
+    correlation = torch.as_tensor(correlation, dtype=torch.float32, device=theta.device)
 
-def DistLogNormal(input_distribution, *params):
-    __name__ = "Lognormal"
-    mu, std = params
-    probs = np.exp(mu + std*input_distribution)
-    
+    # --- Ensure batch dims ---
+    if theta.ndim == 1:
+        theta = theta.unsqueeze(0)
+    B = theta.shape[0]
+
+    if x.ndim == 1:
+        x = x.unsqueeze(0)
+    if x.shape[0] == 1 and B > 1:
+        x = x.expand(B, -1)
+
+    if correlation.ndim == 1:
+        correlation = correlation.unsqueeze(0)
+    if correlation.shape[0] == 1 and B > 1:
+        correlation = correlation.expand(B, -1)
+
+    # --- Parameters ---
+    L     = theta[:, 0].unsqueeze(1)
+    k     = theta[:, 1].unsqueeze(1)
+    sigma = theta[:, 2].unsqueeze(1)
+
+    # --- Logistic mean ---
+    mean = L / (1 + torch.exp(k * correlation)) + 2
+
+    # --- Gaussian likelihood ---
+    z = (x - mean) / sigma
+    pdf = torch.exp(-0.5 * z**2) / (sigma * math.sqrt(2.0 * math.pi))
+
+    return pdf

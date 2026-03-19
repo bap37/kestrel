@@ -1,6 +1,7 @@
 from dustbi_simulator import *
 from Functions import *
 from dustbi_nn import PopulationEmbeddingFull
+from dustbi_plotting import plot_loss
 import yaml, os, argparse
 import pickle
 

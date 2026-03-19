@@ -11,6 +11,7 @@ from Functions import *
 #from pyro.infer.autoguide.initialization import init_to_median
 
 #Create the layout function to describe input parameters theta
+
 from dataclasses import dataclass
 
 @dataclass
@@ -46,6 +47,7 @@ def build_layout(param_names, dicts):
         "double_gaussian": [],
         "linear": [],
         "stepwise": [],
+        "logistic": []
     }
 
     order = {
@@ -55,6 +57,7 @@ def build_layout(param_names, dicts):
         "double_gaussian": [],
         "linear": [],
         "stepwise": [],
+        "logistic": [],
     }
 
     params_to_avoid = ['STEP', 'SCATTER']
@@ -92,6 +95,13 @@ def build_layout(param_names, dicts):
             idx["stepwise"].append(i)
             order["stepwise"].append(name)
 
+        elif "Logistic" in funcname:
+            idx["logistic"].append(i)
+            order["logistic"].append(name)
+
+        else:
+            AssertionError(f"You have passed {funcname}, which I don't recognise")
+
     counts = {k: len(v) for k, v in idx.items()}
 
     n_params = {
@@ -101,6 +111,7 @@ def build_layout(param_names, dicts):
         "double_gaussian": 5,
         "linear": 2,
         "stepwise": 1,
+        "logistic": 3,
     }
 
     slices = build_theta_layout(counts, n_params)
@@ -112,6 +123,7 @@ def build_layout(param_names, dicts):
         n_params=n_params,
         order=order
     )    
+
 
 #######################
 ## BEGIN SIMULATOR
@@ -308,6 +320,7 @@ def make_simulator(layout, df, param_names, parameters_to_condition_on, dicts, d
 
 
 
+
 def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
                            dicts, dfdata, sub_batch=10, device="cpu", debug=False):
     bounds_dict, function_dict, split_dict, priors_dict, corr_dict = dicts
@@ -374,7 +387,7 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
 
             for i in range(layout.counts[dist]):
                 name = layout.order[dist][i]
-
+                
                 if "_HIGH_" in name:
                     name = name.split("_HIGH_")[0]
                     high_flag = True
@@ -384,7 +397,7 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
                 batch_size = B
                 #Very quickly scan the correlation dictionary for any correlations; otherwise set to none
                 correlation = df_tensor.get(corr_dict.get(name)) if corr_dict.get(name) else None
-
+                
                 if name in split_dict:
                     _, split_param, split_val = split_dict[name]
                     split_tensor = df_tensor[split_param]
@@ -502,10 +515,10 @@ def validate_order(param_names, function_dict):
 
     #Will need to add other functions in as they are implemented; make sure that Exponential is always last 
     order_priority = {
-        DistLogistic: 2,
-        DistDoubleGaussian: 3,
-        DistGaussian: 4,
-        DistExponential: 5,
+        DistGaussian: 2,
+        DistExponential: 3,
+        DistDoubleGaussian: 4,
+        DistLogistic: 5,
     }
 
     #Temporarily strip "step" from param names, since it's implemented differently.
@@ -515,7 +528,7 @@ def validate_order(param_names, function_dict):
     priorities = [order_priority[function_dict[p]] for p in new_list]
 
     if priorities != sorted(priorities):
-        raise ValueError("Please ensure that any Exponential distribution strictly comes after all Gaussian distributions.")
+        raise ValueError(f"Please ensure that the parameters are give in the following order: {order_priority.values}")
 
         
     return True
