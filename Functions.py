@@ -110,7 +110,6 @@ def DistDoubleGaussian(x, theta, correlation):
     G2 = a*torch.exp(-0.5 * ((x - mu2)/sigma2)**2) / (sigma2 * math.sqrt(2.0 * math.pi))
 
     return G1+G2
-
 def DistLogistic(x, theta, correlation):
     """
     Logistic-shaped likelihood for importance sampling.
@@ -147,7 +146,7 @@ def DistLogistic(x, theta, correlation):
     sigma = theta[:, 2].unsqueeze(1)
 
     # --- Logistic mean ---
-    mean = L / (1 + torch.exp(k * correlation)) + 2
+    mean = L / (1 + torch.exp(k * correlation - 10)) + 2
 
     # --- Gaussian likelihood ---
     z = (x - mean) / sigma
