@@ -41,47 +41,6 @@ def add_distance(df_tensor):
 simfilename = 'SIM_BANK_SB.FITRES.gz'
 datfilename = 'SIMS_FOR_TESTING/FITOPT000.FITRES.gz'
 
-infos = load_kestrel("KESTREL.yml")
-
-parameters_to_condition_on = infos['parameters_to_condition_on']
-n_sim = infos['sim_parameters']['n_sim']
-n_batch = infos['sim_parameters']['n_batch']
-sims_savename = infos['sim_parameters']['simname']
-posterior_savename = infos['sim_parameters']['posteriorname']
-
-   
-dicts = [infos['Functions'], infos['Splits'], infos['Priors'], infos['Correlations']]
-
-##############################
-# Load information and setup
-device = "cuda" if torch.cuda.is_available() else "cpu"
-
-param_names = infos['param_names']
-
-params_to_fit = parameter_generation(param_names, dicts)
-priors = prior_generator(param_names, dicts, device=device)
-
-layout = build_layout(params_to_fit, dicts)
-print(layout)
-
-
-ndim = len(parameters_to_condition_on)
-print(f"The NN will be trained on a {ndim}-dimensional space, on {param_names}")
-
-###############
-#Do some quick checks and establish density estimator and inference pipelines.
-prior, num_parameters, prior_returns_numpy = process_prior(priors)
-
-density_estimator = posterior_nn(
-    model="nsf", #switch to nsf if interested
-    embedding_net=PopulationEmbeddingFull(input_dim=ndim)
-)
-
-inference = SNPE(
-    prior=priors,
-    density_estimator=density_estimator,
-    device=device,
-)
 
 def get_args():
     
@@ -100,6 +59,11 @@ def get_args():
     Specifics on the network are in this file."""
     parser.add_argument("--TRAIN", help=msg, action="store_true")
     
+    msg = """
+    Configuration yaml for use with simulation and training.
+    """
+    parser.add_argument("--CONFIG", help=msg, type=str)
+
     msg = "Default False. Prints a nice bird :)"
     parser.add_argument("--BIRD", help=msg, action="store_true")
 
@@ -108,7 +72,55 @@ def get_args():
     return args
 
 if __name__ == "__main__":
+
+
     args = get_args()
+
+    if not args.CONFIG:
+        print("No configuration file provided via --CONFIG. Quitting.")
+
+
+    infos = load_kestrel(args.CONFIG)
+
+    parameters_to_condition_on = infos['parameters_to_condition_on']
+    n_sim = infos['sim_parameters']['n_sim']
+    n_batch = infos['sim_parameters']['n_batch']
+    sims_savename = infos['sim_parameters']['simname']
+    posterior_savename = infos['sim_parameters']['posteriorname']
+
+    
+    dicts = [infos['Functions'], infos['Splits'], infos['Priors'], infos['Correlations']]
+
+    ##############################
+    # Load information and setup
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    param_names = infos['param_names']
+
+    params_to_fit = parameter_generation(param_names, dicts)
+    priors = prior_generator(param_names, dicts, device=device)
+
+    layout = build_layout(params_to_fit, dicts)
+    print(layout)
+
+
+    ndim = len(parameters_to_condition_on)
+    print(f"The NN will be trained on a {ndim}-dimensional space, on {param_names}")
+
+    ###############
+    #Do some quick checks and establish density estimator and inference pipelines.
+    prior, num_parameters, prior_returns_numpy = process_prior(priors)
+
+    density_estimator = posterior_nn(
+        model="nsf", #switch to nsf if interested
+        embedding_net=PopulationEmbeddingFull(input_dim=ndim)
+    )
+
+    inference = SNPE(
+        prior=priors,
+        density_estimator=density_estimator,
+        device=device,
+    )
 
     if args.BIRD:
         print("I'm very sorry but the kestrel hasn't taken flight yet!")
