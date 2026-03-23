@@ -42,7 +42,9 @@ def build_layout(param_names, dicts):
 
     idx = {
         "gauss": [],
+        "gauss_EVOL": [],
         "exp": [],
+        "exp_EVOL": [],
         "lognormal": [],
         "double_gaussian": [],
         "linear": [],
@@ -52,7 +54,9 @@ def build_layout(param_names, dicts):
 
     order = {
         "gauss": [],
+        "gauss_EVOL": [],
         "exp": [],
+        "exp_EVOL": [],
         "lognormal": [],
         "double_gaussian": [],
         "linear": [],
@@ -69,15 +73,27 @@ def build_layout(param_names, dicts):
         if base in params_to_avoid:
             continue
         
-        funcname = function_dict[base].__name__
+        try:
+            funcname = function_dict[base].__name__
+        except KeyError:
+            AssertionError(f"I didn't understand how to parse {base}; please ensure it's parsed correctly")
 
         if funcname == "DistGaussian":
             idx["gauss"].append(i)
             order["gauss"].append(name)
 
-        elif "Exponential" in funcname:
+        elif funcname == "DistGaussian_EVOL":
+            idx["gauss_EVOL"].append(i)
+            order["gauss_EVOL"].append(name)
+
+        elif funcname == "DistExponential":
             idx["exp"].append(i)
             order["exp"].append(name)
+
+        elif funcname == "DistExponential_EVOL":
+            idx["exp_EVOL"].append(i)
+            order["exp_EVOL"].append(name)
+
 
         elif "LogNormal" in funcname:
             idx["lognormal"].append(i)
@@ -106,7 +122,9 @@ def build_layout(param_names, dicts):
 
     n_params = {
         "gauss": 2,
+        "gauss_EVOL":3,
         "exp": 1,
+        "exp_EVOL": 2,
         "lognormal": 2,
         "double_gaussian": 5,
         "linear": 2,
@@ -135,14 +153,21 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
     function_dict, split_dict, priors_dict, corr_dict = dicts
     validate_order(param_names, dicts)
 
-    params_to_avoid = ['STEP', 'SCATTER']
-
-    splits = list({v[1] for v in split_dict.values()}) #spools out split_dict parameters.
-
+    params_to_avoid = ['STEP', 'SCATTER', 'EVOL']
+    
+    splits = list({v[1] for v in split_dict.values()})
+    
     # Pre-compute ALL tensor columns ONCE
     all_cols = list(set(list(priors_dict.keys()) + splits + parameters_to_condition_on))
-    for name in params_to_avoid:
-        all_cols.remove(name)
+    
+    # Remove anything that contains any of the substrings
+    all_cols = [
+        col for col in all_cols
+        if not any(substr in col for substr in params_to_avoid)
+    ]
+
+    print(all_cols)
+    
     df_tensor = {
         col: torch.tensor(df[col].to_numpy(), dtype=torch.float32, device=device)
         for col in all_cols
@@ -190,25 +215,35 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
         for dist in layout.slices:
             if layout.counts[dist] == 0:
                 continue 
+        
             theta_dist = theta[:, layout.slices[dist]]
             n_param = layout.n_params[dist]
             theta_dist = theta_dist.view(B, layout.counts[dist], n_param)
 
             for i in range(layout.counts[dist]):
                 name = layout.order[dist][i]
-                
+
+                if "_EVOL" in name:
+                    name = name.split("_EVOL_")[0]
+
                 if "_HIGH_" in name:
                     name = name.split("_HIGH_")[0]
                     high_flag = True
                     
                 theta_i = theta_dist[:, i, :]
                 x = df_tensor[name]  # (N,)
+                if debug: print(name, theta_dist.shape)
                 batch_size = B
                 #Very quickly scan the correlation dictionary for any correlations; otherwise set to none
                 correlation = df_tensor.get(corr_dict.get(name)) if corr_dict.get(name) else None
+
+                #This is pretty heinous... 
+                try: 
+                    steptype, split_param, split_val = split_dict[name]
+                except KeyError:
+                    steptype, split_param, split_val = None, None, None
                 
-                if name in split_dict:
-                    _, split_param, split_val = split_dict[name]
+                if (name in split_dict) & (steptype == "Stepwise"):
                     split_tensor = df_tensor[split_param]
 
                     if high_flag:
@@ -323,9 +358,8 @@ def parameter_generation(list_of_parameter_names, dicts):
                     pass
                 else:
                     split = (split_dict[name][1])
+                    print(name,split)
                     empty_list.append(name+"_HIGH_"+split)
-            elif evol_type == 'Linear':
-                empty_list.append(name+"_EVOL_"+split)
         empty_list.append(name)
     return empty_list
 
@@ -341,9 +375,11 @@ def validate_order(param_names, dicts):
     #Will need to add other functions in as they are implemented; make sure that Exponential is always last 
     order_priority = {
         DistGaussian: 2,
-        DistExponential: 3,
-        DistDoubleGaussian: 4,
-        DistLogistic: 5,
+        DistGaussian_EVOL:3,
+        DistExponential: 4,
+        DistExponential_EVOL: 5,
+        DistDoubleGaussian: 6,
+        DistLogistic: 7,
     }
 
     #Temporarily strip "step" from param names, since it's implemented differently.
@@ -356,8 +392,11 @@ def validate_order(param_names, dicts):
 
     #check to make sure that we don't have a split and Correlation enabled at the same time 
     conflicts = [k for k in split_dict if k in corr_dict and corr_dict[k] != 'None']
-    if conflicts:
-        raise ValueError(f"Conflict detected for keys: {conflicts}")
+    for k in conflicts:
+        if "EVOL" not in function_dict[k].__name__:
+            raise ValueError(f"Conflict detected for keys: {conflicts}")
+        else: 
+            print(f"Found that there is a split and correlation entry for {conflicts}. Continuing.")
 
     return True
 
@@ -437,7 +476,9 @@ def load_kestrel(filename):
         "DistGaussian": DistGaussian,
         "DistExponential": DistExponential,
         "DistLogistic": DistLogistic,
-        "DistDoubleGaussian": DistDoubleGaussian
+        "DistDoubleGaussian": DistDoubleGaussian,
+        "DistGaussian_EVOL": DistGaussian_EVOL,
+        "DistExponential_EVOL": DistExponential_EVOL,
     }
 
 
@@ -702,7 +743,7 @@ def prior_generator(param_names, dicts, device='cpu'):
 
         func_name = function_dict[name].__name__        
         
-        if func_name == "DistGaussian":
+        if "DistGaussian" in func_name:
             mu0, sigma0 = priors_dict[name]
             mu_prior, sigma_prior = TwoDBoxPrior(mu0, sigma0, device=device)
             list_o_priors.extend([mu_prior, sigma_prior])
@@ -712,12 +753,15 @@ def prior_generator(param_names, dicts, device='cpu'):
                 if evol_type == "Stepwise":
                     list_o_priors.extend([mu_prior, sigma_prior])
                 elif evol_type == "Linear":
-                    offset0, slope0 = priors_dict[name+"_EVOL"]
-                    offset_prior, slope_prior = TwoDBoxPrior(offset0, slope0)
-                    list_o_priors.extend([offset_prior, slope_prior])
+                    slope0 = priors_dict[name+"_EVOL"][0]
+                    slope_prior = BoxUniform(
+                        low= torch.tensor([slope0[0]], dtype=torch.float32, device=device),
+                        high=torch.tensor([slope0[1]], dtype=torch.float32, device=device)
+                            )
+                    list_o_priors.extend([slope_prior])
 
                 
-        elif func_name == "DistExponential":
+        elif "DistExponential" in func_name:
             tau0 = priors_dict[name][0]
 
             tau_prior = BoxUniform(
@@ -732,9 +776,12 @@ def prior_generator(param_names, dicts, device='cpu'):
                 if evol_type == "Stepwise":
                     list_o_priors.extend([tau_prior])
                 elif evol_type == "Linear":
-                    offset0, slope0 = priors_dict[name+"_EVOL"]
-                    offset_prior, slope_prior = TwoDBoxPrior(offset0, slope0)
-                    list_o_priors.extend([offset_prior, slope_prior])
+                    slope0 = priors_dict[name+"_EVOL"]
+                    slope0 = BoxUniform(
+                        low= torch.tensor([slope0[0]], dtype=torch.float32, device=device),
+                        high=torch.tensor([slope0[1]], dtype=torch.float32, device=device)
+                            )
+                    list_o_priors.extend([slope_prior])
 
 
         if func_name == "DistDoubleGaussian":
@@ -773,9 +820,12 @@ def prior_generator(param_names, dicts, device='cpu'):
                 if evol_type == "Stepwise":
                     list_o_priors.extend([mu1_prior, sigma1_prior, mu2_prior, sigma2_prior, a_prior])
                 elif evol_type == "Linear":
-                    offset0, slope0 = priors_dict[name+"_EVOL"]
-                    offset_prior, slope_prior = TwoDBoxPrior(offset0, slope0)
-                    list_o_priors.extend([offset_prior, slope_prior])
+                    slope0 = priors_dict[name+"_EVOL"]
+                    slope0 = BoxUniform(
+                        low= torch.tensor([slope0[0]], dtype=torch.float32, device=device),
+                        high=torch.tensor([slope0[1]], dtype=torch.float32, device=device)
+                            )
+                    list_o_priors.extend([slope_prior])
 
         if func_name == "DistLogistic":
             L0, k0, sigma0 = priors_dict[name]
@@ -812,6 +862,9 @@ def prior_generator(param_names, dicts, device='cpu'):
             )
         list_o_priors.extend([step_prior])
 
+
+    for n, p in enumerate(list_o_priors):
+        print(p)
 
     print(f"Added {len(list_o_priors)} priors")
                     

@@ -34,7 +34,91 @@ def DistGaussian(x, theta, correlation):
 
     return torch.exp(-0.5 * ((x - mu)/sigma)**2) / (sigma * math.sqrt(2.0 * math.pi))
 
+
+def DistGaussian_EVOL(x, theta, correlation):
+    """
+    Gaussian likelihood with μ evolving via m * correlation.
+
+    x:           Tensor of shape (N,) or (batch_size, N)
+    theta:       Tensor of shape (batch_size, 3) -> [mu0, sigma, m]
+    correlation: Same shape as x
+
+    Returns:
+        Tensor of shape (batch_size, N)
+    """
+    x = torch.as_tensor(x, dtype=torch.float32)
+    theta = torch.as_tensor(theta, dtype=torch.float32)
+    correlation = torch.as_tensor(correlation, dtype=torch.float32)
+
+    # Ensure theta has batch dimension
+    if theta.ndim == 1:
+        theta = theta.unsqueeze(0)  # (1,3)
+    batch_size = theta.shape[0]
+
+    # Ensure x has shape (batch_size, N)
+    if x.ndim == 1:
+        x = x.unsqueeze(0)
+    if x.shape[0] == 1 and batch_size > 1:
+        x = x.expand(batch_size, -1)
+
+    # Ensure correlation matches x
+    if correlation.ndim == 1:
+        correlation = correlation.unsqueeze(0)
+    if correlation.shape[0] == 1 and batch_size > 1:
+        correlation = correlation.expand(batch_size, -1)
+
+    mu0 = theta[:, 0].unsqueeze(1)   # (batch_size, 1)
+    sigma = theta[:, 1].unsqueeze(1)
+    m = theta[:, 2].unsqueeze(1)
+
+    # μ varies per data point
+    mu = mu0 + m * correlation       # (batch_size, N)
+
+    return torch.exp(-0.5 * ((x - mu) / sigma) ** 2) / (sigma * math.sqrt(2.0 * math.pi))
+
 def DistExponential(x, theta, correlation):
+    """
+    Exponential likelihood for batched θ.
+
+    x:     Tensor of shape (N,) or (batch_size, N)
+    theta: 
+
+    Returns:
+        Tensor of shape (batch_size, N) -> likelihood of each x for each θ
+    """
+    x = torch.as_tensor(x, dtype=torch.float32)
+    theta = torch.as_tensor(theta, dtype=torch.float32)
+
+    # Ensure theta has batch dimension
+    if theta.ndim == 1:
+        theta = theta.unsqueeze(0)  # (1,2)
+    batch_size = theta.shape[0]
+
+    # Ensure x has shape (batch_size, N)
+    if x.ndim == 1:
+        x = x.unsqueeze(0)  # (1, N)
+    if x.shape[0] == 1 and batch_size > 1:
+        x = x.expand(batch_size, -1)
+
+    tau = theta[:, 0].unsqueeze(1)      # (batch_size, 1)\
+    
+    #tau_proposal = x.mean(dim=1, keepdim=True)
+    tau_proposal = 0.5 #Hard coded to 0.5 right now on account of selection effects.
+    
+    # Convert tau to lambda
+    lambda_target = 1.0 / tau
+    lambda_proposal = 1.0 / tau_proposal
+
+    # Compute importance weights
+    weights = (lambda_target / lambda_proposal) * torch.exp(-(lambda_target - lambda_proposal) * x)
+
+    return weights
+
+
+
+def DistExponential_EVOL(x, theta, correlation):
+
+    return
     """
     Exponential likelihood for batched θ.
 
@@ -110,6 +194,7 @@ def DistDoubleGaussian(x, theta, correlation):
     G2 = a*torch.exp(-0.5 * ((x - mu2)/sigma2)**2) / (sigma2 * math.sqrt(2.0 * math.pi))
 
     return G1+G2
+
 def DistLogistic(x, theta, correlation):
     """
     Logistic-shaped likelihood for importance sampling.
