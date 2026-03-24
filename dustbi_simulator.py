@@ -180,7 +180,7 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
 
     if "STEP" in param_names:
     #Calculate indices for things that need the "mass" step added to them. 
-        steps_to_add = ['MU', 'MURES']
+        steps_to_add = ['MU']#, 'MURES']
         step_indices = torch.tensor(
             [parameters_to_condition_on.index(c) for c in steps_to_add],
             dtype=torch.long,
@@ -191,7 +191,7 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
         step_threshold = split_dict["STEP"][2]
 
     if "SCATTER" in param_names:
-        steps_to_add = ['MU', 'MURES', 'mB']
+        steps_to_add = ['MU', 'mB',]#'MURES', 'mB']
         scatter_indices = torch.tensor(
             [parameters_to_condition_on.index(c) for c in steps_to_add],
             dtype=torch.long,
@@ -400,6 +400,7 @@ def validate_order(param_names, dicts):
 
     return True
 
+
 def unspool_labels(list_of_parameter_names, dicts, latex_dict, function_dict):
     """
     Creates a set of labels for the parameters. Takes in your regular parameter names; outputs latex labels for everything. 
@@ -422,8 +423,11 @@ def unspool_labels(list_of_parameter_names, dicts, latex_dict, function_dict):
             if name == "STEP":
                 pname = "STEP"
                 func_params = [r"$\gamma$"]
+            elif name =="SCATTER":
+                pname = "SCATTER"
+                func_params = [r"$\sigma_{\rm int}$"]
             else:
-                print("No idea what you passed me")
+                print(f"No idea what you passed me: {name}, {func_name}")
                 
         
         for _ in func_params:
@@ -435,7 +439,6 @@ def unspool_labels(list_of_parameter_names, dicts, latex_dict, function_dict):
             empty_list.append(latex_string)
         high_flag = False
     return empty_list
-
 
 def split_outputs(output_distribution, split_tensor, split_val, param_list):
     """

@@ -4,15 +4,17 @@ param_names:
     SIM_x1
     SIM_EBV
     STEP
+    SCATTER
+
 
 parameters_to_condition_on:
     ['c', 'mB', 'x1', 'zHD', 'cERR', 'mBERR', 'x1ERR', 'MU', 'HOST_LOGMASS', 'MURES']
 
 sim_parameters:
-    n_sim:   2000
+    n_sim:   60_000 
     n_batch: 500
-    simname: 'simulations_v4.h5'
-    posteriorname: 'posterior.v4.pt'
+    simname: 'sims.v5.NOM.h5'
+    posteriorname: 'posterior.v5.NOM.pt'
 
 #########################
 # Dictionaries 
@@ -23,12 +25,13 @@ Functions:
     SIM_RV:   DistGaussian
     SIM_EBV:  DistExponential
     SIM_beta: DistGaussian
-    SIM_x1:   DistGaussian
+    SIM_x1:   DistGaussian_EVOL
 
 Splits:
     SIM_RV:  ["Stepwise","HOST_LOGMASS", 10] #A list containing the split parameter and location
     SIM_EBV: ["Stepwise","HOST_LOGMASS", 10]
     STEP:    ["Stepwise", "HOST_LOGMASS", 10]
+    SIM_x1:  ["Linear", "HOST_LOGMASS", None]
 
 #If using higher-order functions such as DistLogistic, which require two parameters
 #this dictionary tells the correlation parameter.
@@ -38,7 +41,7 @@ Correlations:
     SIM_RV:   None
     SIM_EBV:  None
     SIM_beta: None
-    SIM_x1:   None
+    SIM_x1:   HOST_LOGMASS
 
 # We assume BoxUniform priors for our parameters; 
 # so each tuple needs to include the lower and upper bound you expect for that parameter. 
@@ -49,6 +52,7 @@ Priors:
     SIM_EBV:  ["(0.05, 0.5)"]
     SIM_beta: ["(1,2)", "(0.05, 0.3)"]
     SIM_x1:   ["(-2,2)", "(0.2, 1)"]
+    SIM_x1_EVOL: ["(-1,1)"]
     STEP:     ["(0,0.2)"]
     SCATTER:  ["(0,0.1)"]
     SIM_RV:   ["(1.5,4)", "(0.5,2)"]
@@ -58,13 +62,14 @@ Priors:
 
 # Fancy latex labels for plotting. Add as you see fit. 
 Latex_Names:
-    DistExponential:  [r'$\tau$']
-    DistGaussian:     [r'$\mu$', r'$\sigma$']
-    SIM_c:            r"$c_{\rm int}$"
-    SIM_beta:         r"$\beta_{\rm int}$"
-    SIM_RV:           r"$R_V$"
-    SIM_EBV:          r"$EBV$"
-    SIM_x1:           r"$x_1$"
-    STEP:             r"$\gamma$"
-    SCATTER:          r"$\sigma_{\rm int}$"
-    DistLogistic:     [r"$L$", r"$k$", r"$\sigma$"]
+    DistExponential:   [r'$\tau$']
+    DistGaussian:      [r'$\mu$', r'$\sigma$']
+    DistGaussian_EVOL: [r'$\mu$', r'$\sigma$, r"$\mu$ slope"]
+    SIM_c:             r"$c_{\rm int}$"
+    SIM_beta:          r"$\beta_{\rm int}$"
+    SIM_RV:            r"$R_V$"
+    SIM_EBV:           r"$EBV$"
+    SIM_x1:            r"$x_1$"
+    STEP:              r"$\gamma$"
+    SCATTER:           r"$\sigma_{\rm int}$"
+    DistLogistic:      [r"$L$", r"$k$", r"$\sigma$"]
