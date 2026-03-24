@@ -180,7 +180,7 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
 
     if "STEP" in param_names:
     #Calculate indices for things that need the "mass" step added to them. 
-        steps_to_add = ['MU']#, 'MURES']
+        steps_to_add = ['MU', 'MURES']
         step_indices = torch.tensor(
             [parameters_to_condition_on.index(c) for c in steps_to_add],
             dtype=torch.long,
@@ -191,7 +191,7 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
         step_threshold = split_dict["STEP"][2]
 
     if "SCATTER" in param_names:
-        steps_to_add = ['MU', 'mB',]#'MURES', 'mB']
+        steps_to_add = ['MU', 'MURES', 'mB']
         scatter_indices = torch.tensor(
             [parameters_to_condition_on.index(c) for c in steps_to_add],
             dtype=torch.long,
