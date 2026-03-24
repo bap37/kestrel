@@ -16,6 +16,11 @@ sim_parameters:
     simname: 'sims.v5.NOM.h5'
     posteriorname: 'posterior.v5.NOM.pt'
 
+#Optional key; for use with run_nre.py. Otherwise leave as None
+Models_Comparison:
+    KESTREL_LOG.yml
+    KESTREL_2COLOURS.yml
+
 #########################
 # Dictionaries 
 #########################
