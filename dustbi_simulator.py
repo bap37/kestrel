@@ -490,6 +490,11 @@ def load_kestrel(filename):
 
     raw_yaml['param_names'] = raw_yaml['param_names'].split(" ")
         
+    raw_yaml['Data_File'] = raw_yaml['Data_File'].split(" ")
+    raw_yaml['Simbank_File'] = raw_yaml['Simbank_File'].split(" ")
+
+
+
     _priors = raw_yaml['Priors']
     for entry in _priors:
         for n in range(len(_priors[entry])):
@@ -499,6 +504,11 @@ def load_kestrel(filename):
         name: FUNCTION_REGISTRY[func_name]
         for name, func_name in raw_yaml["Functions"].items()
         }
+
+    try:
+        raw_yaml['Models_Comparison'] = raw_yaml['Models_Comparison'].split(" ")
+    except KeyError:
+        pass
 
     return raw_yaml
 
@@ -519,7 +529,7 @@ def load_data(simfilename, datfilename):
     dfdata['MU'] = Planck18.distmod(dfdata.zHD.values).value
 
     print("Only loading DES Data")
-    dfdata = dfdata.loc[dfdata.IDSURVEY == 10]
+    dfdata.loc[dfdata.PROB_SNNV19 < -1., "PROB_SNNV19"] = 1
     dfdata = dfdata.loc[dfdata.PROB_SNNV19 >= 0.5]
 
     print("Ensuring only valid log masses.")

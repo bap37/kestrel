@@ -38,9 +38,6 @@ def add_distance(df_tensor):
     
     return  MURES
 
-simfilename = 'SIM_BANK_SB.FITRES.gz'
-datfilename = 'SIMS_FOR_TESTING/FITOPT000.FITRES.gz'
-
 
 def get_args():
     
@@ -79,8 +76,16 @@ if __name__ == "__main__":
     if not args.CONFIG:
         print("No configuration file provided via --CONFIG. Quitting.")
 
-
     infos = load_kestrel(args.CONFIG)
+
+    datfilename = infos['Data_File'][0]
+    simfilename = infos['Simbank_File'][0]
+
+    #Error Trap
+    if not os.path.exists(datfilename):
+        AssertionError(f"{datfilename} doesn't exist; quitting.")
+    if not os.path.exists(simfilename):
+        AssertionError(f"{simfilename} doesn't exist; quitting.")
 
     parameters_to_condition_on = infos['parameters_to_condition_on']
     n_sim = infos['sim_parameters']['n_sim']
@@ -158,7 +163,6 @@ if __name__ == "__main__":
         simulate_model(n_sim, n_batch, sims_savename, priors, sim_for_training, inference, device=device, batched=batched)
         print("Quitting after simulation stage.")
         shutil.copy(args.CONFIG, sims_savename.replace(".h5", ".yml.bk"))
-
         quit()
     ################
     if args.TRAIN:
@@ -211,40 +215,4 @@ if __name__ == "__main__":
                 # Clear simulations from inference to save memory
                 inference._theta = []
                 inference._x = []
-    ################
-    if args.NRE:
-    ################
-        #Need to start working on NRE training ... 
-        """
-        from sbi.inference import SNRE_A
-
-        # Assuming prior and simulators are defined
-        nre = SNRE_A(prior=prior)
-
-        # Simulate data
-        num_simulations = 1000
-        theta_samples = prior.sample((num_simulations,))
-
-        # Get data from both models
-        x1 = simulator1(theta_samples)  # (batch_size, N, input_dim)
-        x2 = simulator2(theta_samples)  # (batch_size, N, input_dim)
-
-        # Combine the data from both models
-        x_combined = torch.cat([x1, x2], dim=0)
-        theta_combined = torch.cat([theta_samples, theta_samples], dim=0)
-        model_labels = torch.cat([torch.zeros(num_simulations, 1), torch.ones(num_simulations, 1)], dim=0)  # 0 for model1, 1 for model2
-
-        # Train NRE on combined data
-        nre.append_simulations(theta_combined, x_combined, model_labels)
-        posterior_nre = nre.train()
-
-        # Example observed data
-        x_obs = torch.tensor([[2.0, 3.0]])  # shape (1, N, input_dim)
-
-        # Estimate model posterior probabilities
-        model_probabilities = posterior_nre.model_probabilities(x_obs)
-        print("Model 1 probability:", model_probabilities[0])
-        print("Model 2 probability:", model_probabilities[1])
-        """
-
 

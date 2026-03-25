@@ -1,9 +1,8 @@
 param_names:
     SIM_c
-    SIM_RV
     SIM_x1
     SIM_EBV
-    STEP
+    SIM_RV
     SCATTER
 
 
@@ -11,21 +10,15 @@ parameters_to_condition_on:
     ['c', 'mB', 'x1', 'zHD', 'cERR', 'mBERR', 'x1ERR', 'MU', 'HOST_LOGMASS', 'MURES']
 
 sim_parameters:
-    n_sim:   60_000 
+    n_sim:   60_000
     n_batch: 500
-    simname: 'sims.v5.NOM.h5'
-    posteriorname: 'posterior.v5.NOM.pt'
-
-#Optional key; for use with run_nre.py. Otherwise leave as None
-Models_Comparison:
-    KESTREL_LOG.yml
-    KESTREL_2COLOURS.yml
+    simname: 'simulations.v5.LOG.h5'
+    posteriorname: 'posterior.v5.LOG.pt'
 
 Data_File:
     "../INVERSE_H0/D5YR_DATA/FITOPT000_MUOPT000.FITRES.gz"
 Simbank_File:
     "SIM_BANK_SB.FITRES.gz"
-
 
 #########################
 # Dictionaries 
@@ -33,26 +26,24 @@ Simbank_File:
 
 Functions:
     SIM_c:    DistGaussian  #The shape of this parameter.
-    SIM_RV:   DistGaussian
+    SIM_RV:   DistLogistic
     SIM_EBV:  DistExponential
     SIM_beta: DistGaussian
-    SIM_x1:   DistGaussian_EVOL
+    SIM_x1:   DistGaussian
 
 Splits:
-    SIM_RV:  ["Stepwise","HOST_LOGMASS", 10] #A list containing the split parameter and location
     SIM_EBV: ["Stepwise","HOST_LOGMASS", 10]
-    STEP:    ["Stepwise", "HOST_LOGMASS", 10]
-    SIM_x1:  ["Linear", "HOST_LOGMASS", None]
+
 
 #If using higher-order functions such as DistLogistic, which require two parameters
 #this dictionary tells the correlation parameter.
 #ONLY works when/if calling 2-parameter functions. 
 Correlations:
     SIM_c:    None
-    SIM_RV:   None
+    SIM_RV:   HOST_LOGMASS
     SIM_EBV:  None
     SIM_beta: None
-    SIM_x1:   HOST_LOGMASS
+    SIM_x1:   None
 
 # We assume BoxUniform priors for our parameters; 
 # so each tuple needs to include the lower and upper bound you expect for that parameter. 
@@ -66,21 +57,18 @@ Priors:
     SIM_x1_EVOL: ["(-1,1)"]
     STEP:     ["(0,0.2)"]
     SCATTER:  ["(0,0.1)"]
-    SIM_RV:   ["(1.5,4)", "(0.5,2)"]
-#    SIM_RV:   ["(1,3)","(-1.5, 2.1)", "(0,.5)"] #L, k, sigma
-
+    SIM_RV:   ["(1,3)","(-1.5, 2.1)", "(0,.5)"] #L, k, sigma
 
 
 # Fancy latex labels for plotting. Add as you see fit. 
 Latex_Names:
-    DistExponential:   [r'$\tau$']
-    DistGaussian:      [r'$\mu$', r'$\sigma$']
-    DistGaussian_EVOL: [r'$\mu$', r'$\sigma$, r"$\mu$ slope"]
-    SIM_c:             r"$c_{\rm int}$"
-    SIM_beta:          r"$\beta_{\rm int}$"
-    SIM_RV:            r"$R_V$"
-    SIM_EBV:           r"$EBV$"
-    SIM_x1:            r"$x_1$"
-    STEP:              r"$\gamma$"
-    SCATTER:           r"$\sigma_{\rm int}$"
-    DistLogistic:      [r"$L$", r"$k$", r"$\sigma$"]
+    DistExponential:  [r'$\tau$']
+    DistGaussian:     [r'$\mu$', r'$\sigma$']
+    SIM_c:            r"$c_{\rm int}$"
+    SIM_beta:         r"$\beta_{\rm int}$"
+    SIM_RV:           r"$R_V$"
+    SIM_EBV:          r"$EBV$"
+    SIM_x1:           r"$x_1$"
+    STEP:             r"$\gamma$"
+    SCATTER:          r"$\sigma_{\rm int}$"
+    DistLogistic:     [r"$L$", r"$k$", r"$\sigma$"]
