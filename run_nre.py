@@ -33,10 +33,6 @@ def add_distance(df_tensor):
     
     return  MURES
 
-simfilename = 'SIM_BANK_SB.FITRES.gz'
-datfilename = 'SIMS_FOR_TESTING/FITOPT000.FITRES.gz'
-
-
 def get_args():
     
     parser = argparse.ArgumentParser()
@@ -58,7 +54,11 @@ if __name__ == "__main__":
     if not args.CONFIG:
         print("No configuration file provided via --CONFIG. Quitting.")
 
+
     infos = load_kestrel(args.CONFIG)
+
+    datfilename = infos['Data_File'][0]
+    simfilename = infos['Simbank_File'][0]
 
     parameters_to_condition_on = infos['parameters_to_condition_on']
 

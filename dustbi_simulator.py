@@ -305,8 +305,10 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
         #Then if grey scatter is enabled, add it to this nonsense.            
         if "SCATTER" in param_names:
             temp_index = -1
-            scatter = theta[:, temp_index].unsqueeze(1)                 
-            result[:, :, scatter_indices] += scatter.unsqueeze(-1)
+            scatter = theta[:, temp_index].view(-1, 1, 1)
+            scatter = torch.clamp(scatter, min=1e-6)
+            noise = torch.randn_like(result[:, :, scatter_indices]) * scatter
+            result[:, :, scatter_indices] += noise
 
         # --- Fill bad simulations with NaN ---
         result[bad_mask] = float('nan')
