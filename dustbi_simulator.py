@@ -166,7 +166,7 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
         if not any(substr in col for substr in params_to_avoid)
     ]
 
-    print(all_cols)
+    #print(all_cols)
     
     df_tensor = {
         col: torch.tensor(df[col].to_numpy(), dtype=torch.float32, device=device)
@@ -358,7 +358,7 @@ def parameter_generation(list_of_parameter_names, dicts):
                     pass
                 else:
                     split = (split_dict[name][1])
-                    print(name,split)
+                    #print(name,split)
                     empty_list.append(name+"_HIGH_"+split)
         empty_list.append(name)
     return empty_list
@@ -529,7 +529,8 @@ def load_data(simfilename, datfilename):
     dfdata['MU'] = Planck18.distmod(dfdata.zHD.values).value
 
     print("Only loading DES Data")
-    dfdata.loc[dfdata.PROB_SNNV19 < -1., "PROB_SNNV19"] = 1
+    dfdata = dfdata.loc[dfdata.IDSURVEY == 10]
+    #dfdata.loc[dfdata.PROB_SNNV19 < -1., "PROB_SNNV19"] = 1
     dfdata = dfdata.loc[dfdata.PROB_SNNV19 >= 0.5]
 
     print("Ensuring only valid log masses.")
@@ -876,8 +877,8 @@ def prior_generator(param_names, dicts, device='cpu'):
         list_o_priors.extend([step_prior])
 
 
-    for n, p in enumerate(list_o_priors):
-        print(p)
+    #for n, p in enumerate(list_o_priors):
+    #    print(p)
 
     print(f"Added {len(list_o_priors)} priors")
                     

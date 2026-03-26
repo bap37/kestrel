@@ -106,7 +106,6 @@ if __name__ == "__main__":
     priors = prior_generator(param_names, dicts, device=device)
 
     layout = build_layout(params_to_fit, dicts)
-    print(layout)
 
 
     ndim = len(parameters_to_condition_on)
