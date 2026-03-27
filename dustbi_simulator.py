@@ -72,13 +72,16 @@ def build_layout(param_names, dicts):
 
         if base in params_to_avoid:
             continue
+
+        if "Truncated" in base:
+            base = base.replace("Truncated", "")
         
         try:
             funcname = function_dict[base].__name__
         except KeyError:
             AssertionError(f"I didn't understand how to parse {base}; please ensure it's parsed correctly")
 
-        if ("DistGaussian" in funcname) and ("EVOL" not in funcname):
+        if ("Gaussian" in funcname) and ("EVOL" not in funcname):
             idx["gauss"].append(i)
             order["gauss"].append(name)
 
@@ -180,7 +183,7 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
 
     if "STEP" in param_names:
     #Calculate indices for things that need the "mass" step added to them. 
-        steps_to_add = ['MU', 'MURES']
+        steps_to_add = ['MURES']
         step_indices = torch.tensor(
             [parameters_to_condition_on.index(c) for c in steps_to_add],
             dtype=torch.long,
@@ -191,7 +194,7 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
         step_threshold = split_dict["STEP"][2]
 
     if "SCATTER" in param_names:
-        steps_to_add = ['MU', 'MURES', 'mB']
+        steps_to_add = ['MURES', 'mB']
         scatter_indices = torch.tensor(
             [parameters_to_condition_on.index(c) for c in steps_to_add],
             dtype=torch.long,
@@ -402,6 +405,7 @@ def validate_order(param_names, dicts):
     #Will need to add other functions in as they are implemented; make sure that Exponential is always last 
     order_priority = {
         DistGaussian: 2,
+        DistTruncatedGaussian: 2,
         DistGaussian_EVOL:3,
         DistExponential: 4,
         DistExponential_EVOL: 5,
@@ -442,6 +446,9 @@ def unspool_labels(list_of_parameter_names, dicts, latex_dict, function_dict):
         if "_HIGH_" in name:
             name = name.split("_HIGH_")[0]
             high_flag = True
+
+        if "Truncated" in name:
+            name = name.replace("Truncated","")
 
         try:
             func_name = (function_dict[name].__name__)
@@ -785,7 +792,7 @@ def prior_generator(param_names, dicts, device='cpu'):
 
         func_name = function_dict[name].__name__        
         
-        if "DistGaussian" in func_name:
+        if "Gaussian" in func_name:
             mu0, sigma0 = priors_dict[name]
             mu_prior, sigma_prior = TwoDBoxPrior(mu0, sigma0, device=device)
             list_o_priors.extend([mu_prior, sigma_prior])
