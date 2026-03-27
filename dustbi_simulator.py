@@ -78,7 +78,7 @@ def build_layout(param_names, dicts):
         except KeyError:
             AssertionError(f"I didn't understand how to parse {base}; please ensure it's parsed correctly")
 
-        if funcname == "DistGaussian":
+        if ("DistGaussian" in funcname) and ("EVOL" not in funcname):
             idx["gauss"].append(i)
             order["gauss"].append(name)
 
@@ -509,6 +509,7 @@ def load_kestrel(filename):
         "DistDoubleGaussian": DistDoubleGaussian,
         "DistGaussian_EVOL": DistGaussian_EVOL,
         "DistExponential_EVOL": DistExponential_EVOL,
+        "DistTruncatedGaussian": DistTruncatedGaussian,
     }
 
 

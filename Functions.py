@@ -114,8 +114,6 @@ def DistExponential(x, theta, correlation):
 
     return weights
 
-
-
 def DistExponential_EVOL(x, theta, correlation):
 
     return
@@ -238,3 +236,92 @@ def DistLogistic(x, theta, correlation):
     pdf = torch.exp(-0.5 * z**2) / (sigma * math.sqrt(2.0 * math.pi))
 
     return pdf
+
+def DistGamma(x, theta, correlation):
+
+    """
+    Gamma likelihood for batched θ.
+
+    x:     Tensor of shape (N,) or (batch_size, N)
+    theta: 
+
+    Returns:
+        Tensor of shape (batch_size, N) -> likelihood of each x for each θ
+    """
+    x = torch.as_tensor(x, dtype=torch.float32)
+    theta = torch.as_tensor(theta, dtype=torch.float32)
+
+    # Ensure theta has batch dimension
+    if theta.ndim == 1:
+        theta = theta.unsqueeze(0)  # (1,2)
+    batch_size = theta.shape[0]
+
+    # Ensure x has shape (batch_size, N)
+    if x.ndim == 1:
+        x = x.unsqueeze(0)  # (1, N)
+    if x.shape[0] == 1 and batch_size > 1:
+        x = x.expand(batch_size, -1)
+
+    tau = theta[:, 0].unsqueeze(1)      # (batch_size, 1)\
+    gamma = theta[:,1].unsqueeze(1)
+    
+    # Convert tau to lambda
+    lambda_target = 1.0 / tau
+
+    # Compute importance weights
+    weights = x**(gamma - 1) * torch.exp(-(lambda_target) * x)
+
+    return weights
+
+
+def DistTruncatedGaussian(x, theta, correlation=None, low=1.2, high=float("inf")):
+    """
+    Truncated Gaussian likelihood for batched θ.
+
+    x:     Tensor (N,) or (batch_size, N)
+    theta: Tensor (batch_size, 2) -> [mu, sigma]
+
+    low, high: truncation bounds (can be scalars or tensors)
+
+    Returns:
+        Tensor (batch_size, N)
+    """
+    x = torch.as_tensor(x, dtype=torch.float32)
+    theta = torch.as_tensor(theta, dtype=torch.float32)
+
+    # Ensure theta has batch dimension
+    if theta.ndim == 1:
+        theta = theta.unsqueeze(0)
+    batch_size = theta.shape[0]
+
+    # Ensure x has shape (batch_size, N)
+    if x.ndim == 1:
+        x = x.unsqueeze(0)
+    if x.shape[0] == 1 and batch_size > 1:
+        x = x.expand(batch_size, -1)
+
+    mu = theta[:, 0].unsqueeze(1)      # (B,1)
+    sigma = theta[:, 1].unsqueeze(1)   # (B,1)
+
+    # --- Gaussian PDF ---
+    pdf = torch.exp(-0.5 * ((x - mu)/sigma)**2) / (sigma * math.sqrt(2.0 * math.pi))
+
+    # --- CDF using erf ---
+    def normal_cdf(z):
+        return 0.5 * (1 + torch.erf(z / math.sqrt(2)))
+
+    a = (low - mu) / sigma
+    b = (high - mu) / sigma
+
+    Z = normal_cdf(b) - normal_cdf(a)  # normalization
+
+    # Avoid division by zero
+    Z = torch.clamp(Z, min=1e-12)
+
+    # --- Apply truncation ---
+    mask = (x >= low) & (x <= high)
+
+    truncated_pdf = torch.zeros_like(pdf)
+    truncated_pdf[mask] = pdf[mask] / Z.expand_as(pdf)[mask]
+
+    return truncated_pdf
