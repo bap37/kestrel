@@ -366,6 +366,29 @@ def parameter_generation(list_of_parameter_names, dicts):
     return empty_list
 
 
+def validate_step(param_names, params_to_avoid):
+    # Extract only the special params that are present
+    present = [p for p in params_to_avoid if p in param_names]
+
+    if not present:
+        return  # nothing to check
+
+    # Get their positions in param_names
+    indices = [param_names.index(p) for p in present]
+
+    # --- Check they are at the end ---
+    expected_indices = list(range(len(param_names) - len(present), len(param_names)))
+    if indices != expected_indices:
+        raise ValueError(
+            f"{present} must appear at the end of param_names in order {params_to_avoid}"
+        )
+
+    # --- Check order is correct ---
+    if present != sorted(present, key=params_to_avoid.index):
+        raise ValueError(
+            f"{present} are not in the correct order {params_to_avoid}"
+        )
+
 def validate_order(param_names, dicts): 
     """
     Catchall error trapping function to be called during initialisation. 
@@ -373,6 +396,8 @@ def validate_order(param_names, dicts):
     function_dict, split_dict, priors_dict, corr_dict = dicts    
 
     params_to_avoid = ["SCATTER", "STEP"]
+
+    validate_step(param_names, params_to_avoid)
 
     #Will need to add other functions in as they are implemented; make sure that Exponential is always last 
     order_priority = {
@@ -859,16 +884,6 @@ def prior_generator(param_names, dicts, device='cpu'):
                 )
             list_o_priors.extend([L_prior, k_prior, sigma_prior])
 
-
-    if "SCATTER" in param_names:
-        scatter0 = priors_dict["SCATTER"][0]
-
-        scatter_prior = BoxUniform(
-            low= torch.tensor([scatter0[0]], dtype=torch.float32, device=device), 
-            high=torch.tensor([scatter0[1]], dtype=torch.float32, device=device)
-            )
-        list_o_priors.extend([scatter_prior])
-
     if "STEP" in param_names:
         step0 = priors_dict["STEP"][0]
 
@@ -878,6 +893,15 @@ def prior_generator(param_names, dicts, device='cpu'):
             )
         list_o_priors.extend([step_prior])
 
+
+    if "SCATTER" in param_names:
+        scatter0 = priors_dict["SCATTER"][0]
+
+        scatter_prior = BoxUniform(
+            low= torch.tensor([scatter0[0]], dtype=torch.float32, device=device), 
+            high=torch.tensor([scatter0[1]], dtype=torch.float32, device=device)
+            )
+        list_o_priors.extend([scatter_prior])
 
     #for n, p in enumerate(list_o_priors):
     #    print(p)
