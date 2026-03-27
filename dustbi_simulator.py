@@ -395,7 +395,7 @@ def validate_order(param_names, dicts):
     """
     function_dict, split_dict, priors_dict, corr_dict = dicts    
 
-    params_to_avoid = ["SCATTER", "STEP"]
+    params_to_avoid = ["STEP", "SCATTER"]
 
     validate_step(param_names, params_to_avoid)
 
