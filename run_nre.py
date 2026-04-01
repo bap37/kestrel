@@ -160,8 +160,8 @@ if __name__ == "__main__":
     )
 
     print(f"Simulating {num_simulations} from nominal model ({args.CONFIG})...")
-    theta_1 = priors_1.sample((num_simulations,))
-    x1 = nominal_sim(theta_1)
+    theta_1 = priors_1.sample((num_simulations,)).to(device)
+    x1 = nominal_sim(theta_1).cpu()
 
     # NaN mask for model 1 (constant across comparisons)
     mask1 = torch.isfinite(x1).all(dim=(1, 2))
@@ -188,8 +188,8 @@ if __name__ == "__main__":
         )
 
         print(f"Simulating {num_simulations} from comparison model ({model_path})...")
-        theta_2 = priors_2.sample((num_simulations,))
-        x2 = comp_sim(theta_2)
+        theta_2 = priors_2.sample((num_simulations,)).to(device)
+        x2 = comp_sim(theta_2).cpu()
 
         mask2 = torch.isfinite(x2).all(dim=(1, 2))
         x2_clean = x2[mask2]
