@@ -225,12 +225,25 @@ if __name__ == "__main__":
 
         # BF_12 = p(x|M1) / p(x|M2) = exp(-logit)
         # (logit > 0 means classifier favours M2)
-        log_bf = -logit.item()
-        bf = torch.exp(torch.tensor(log_bf)).item()
+        import math
+        log10_bf = -logit.item() / math.log(10)
+        bf = 10 ** log10_bf
 
-        print(f"\nlog(BF) {args.CONFIG} vs {model_path}: {log_bf:.4f}")
-        print(f"Bayes Factor: {bf:.4f}")
-        if bf > 1:
-            print(f"  -> Evidence favours {args.CONFIG}")
+        # Jeffreys scale interpretation
+        abs_log10 = abs(log10_bf)
+        if abs_log10 < 0.5:
+            strength = "Not worth more than a bare mention"
+        elif abs_log10 < 1.0:
+            strength = "Substantial"
+        elif abs_log10 < 1.5:
+            strength = "Strong"
+        elif abs_log10 < 2.0:
+            strength = "Very strong"
         else:
-            print(f"  -> Evidence favours {model_path}")
+            strength = "Decisive"
+
+        favoured = args.CONFIG if bf > 1 else model_path
+
+        print(f"\nlog10(BF) {args.CONFIG} vs {model_path}: {log10_bf:.4f}")
+        print(f"Bayes Factor: {bf:.4f}")
+        print(f"  -> {strength} evidence favouring {favoured}")
