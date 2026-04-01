@@ -623,6 +623,9 @@ def standardise_data(dft, dfdata, parameters_to_condition_on, param_names):
 
 
 def simulate_model(n_sim, n_batch, sims_savename, priors, simulator, inference, device="cpu", batched=True):
+    theta_tot = []
+    mask_tot = []
+    
     import h5py
     from tqdm import tqdm
 
@@ -665,6 +668,10 @@ def simulate_model(n_sim, n_batch, sims_savename, priors, simulator, inference, 
                 theta_np = theta_batch.cpu().numpy()
                 x_np = x_batch.cpu().numpy()
 
+                mask = ~torch.isnan(x_batch).any(dim=tuple(range(1, x_batch.ndim)))
+                theta_tot.append(theta_batch)
+                mask_tot.append(mask)
+
                 # resize datasets
                 theta_ds.resize(cursor + current_bs, axis=0)
                 x_ds.resize(cursor + current_bs, axis=0)
@@ -675,6 +682,15 @@ def simulate_model(n_sim, n_batch, sims_savename, priors, simulator, inference, 
 
                 cursor += current_bs
                 pbar.update(current_bs)
+    
+    theta_tot = torch.cat(theta_tot, dim=0)
+    mask_tot = torch.cat(mask_tot, dim=0)
+
+    theta_valid = theta_tot[mask_tot]
+
+    p_vals = priors.sample((n_sim,))
+
+    return theta_valid, p_vals
 
 
 def train_spne(prior, x):

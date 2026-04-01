@@ -28,6 +28,27 @@ from torch import Tensor
 
 
 ##########################
+# Simulations Diagnostics Plots
+##########################
+
+def plot_surviving_priors(theta,priors,labels,figname):
+    import matplotlib.pyplot as plt
+
+    fig, axes = plt.subplots(nrows=13, ncols=1, figsize=(6, 26), sharex=False)
+
+    for x in range(13):
+        ax = axes[x]
+        ax.hist(theta[:, x], histtype="step", label="Valid")
+        ax.hist(priors[:, x], histtype="step", label="Full")
+        ax.set_title(labels[x])
+        
+    axes[0].legend(["Valid", "Full"])
+    plt.tight_layout()
+    plt.savefig(figname, bbox_inches="tight")
+
+
+
+##########################
 # Diagnostic plots largely lifted from SBI diagnostics 
 # Redesigned to fit my plot style and make saving easier. 
 ##########################

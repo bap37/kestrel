@@ -1,7 +1,7 @@
 from dustbi_simulator import *
 from Functions import *
 from dustbi_nn import PopulationEmbeddingFull
-from dustbi_plotting import plot_loss
+from dustbi_plotting import plot_loss, plot_surviving_priors
 import yaml, os, argparse
 import shutil
 import pickle
@@ -159,7 +159,9 @@ if __name__ == "__main__":
 
     if args.SIMULATE:
         print(f"Training {n_sim} simulations and saving to {sims_savename}")
-        simulate_model(n_sim, n_batch, sims_savename, priors, sim_for_training, inference, device=device, batched=batched)
+        theta, priors = simulate_model(n_sim, n_batch, sims_savename, priors, sim_for_training, inference, device=device, batched=batched)
+        labels = unspool_labels(param_names, dicts, infos['Latex_Names'], infos['Functions'])
+        plot_surviving_priors(theta,priors,labels,sims_savename.replace("h5","survivng_priors.pdf"))
         print("Quitting after simulation stage.")
         shutil.copy(args.CONFIG, sims_savename.replace(".h5", ".yml.bk"))
         quit()
