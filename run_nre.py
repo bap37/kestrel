@@ -156,7 +156,7 @@ if __name__ == "__main__":
 
     nominal_sim = make_batched_simulator(
         layout_1, df, param_names_1, parameters_to_condition_on,
-        dicts_1, dfdata, sub_batch=500, device='cpu'
+        dicts_1, dfdata, sub_batch=500, device=device
     )
 
     print(f"Simulating {num_simulations} from nominal model ({args.CONFIG})...")
@@ -184,7 +184,7 @@ if __name__ == "__main__":
 
         comp_sim = make_batched_simulator(
             layout_2, df, param_names_2, parameters_to_condition_on,
-            dicts_2, dfdata, sub_batch=500, device='cpu'
+            dicts_2, dfdata, sub_batch=500, device=device
         )
 
         print(f"Simulating {num_simulations} from comparison model ({model_path})...")
