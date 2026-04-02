@@ -38,8 +38,8 @@ def plot_surviving_priors(theta,priors,labels,figname):
 
     for x in range(13):
         ax = axes[x]
-        ax.hist(theta[:, x], histtype="step", label="Valid")
-        ax.hist(priors[:, x], histtype="step", label="Full")
+        ax.hist(theta[:, x].to_numpy(), histtype="step", label="Valid")
+        ax.hist(priors[:, x].to_numpy(), histtype="step", label="Full")
         ax.set_title(labels[x])
         
     axes[0].legend(["Valid", "Full"])
