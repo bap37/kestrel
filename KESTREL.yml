@@ -13,8 +13,8 @@ parameters_to_condition_on:
 sim_parameters:
     n_sim:   60_000 
     n_batch: 500
-    simname: 'sims.v5.NOM.h5'
-    posteriorname: 'posterior.v5.NOM.pt'
+    simname: 'posteriors/sims.v5.MIX.h5'
+    posteriorname: 'posteriors/posterior.v5.MIX.pt'
 
 #Optional key; for use with run_nre.py. Otherwise leave as None
 Models_Comparison:
@@ -22,7 +22,7 @@ Models_Comparison:
     KESTREL_2COLOURS.yml
 
 Data_File:
-    "../INVERSE_H0/D5YR_DATA/FITOPT000_MUOPT000.FITRES.gz"
+    "DES5YR.FITRES.gz"
 Simbank_File:
     "SIM_BANK_SB.FITRES.gz"
 
@@ -87,12 +87,12 @@ Priors:
 Latex_Names:
     DistExponential:   [r'$\tau$']
     DistGaussian:      [r'$\mu$', r'$\sigma$']
-    DistGaussian_EVOL: [r'$\mu$', r'$\sigma$', r'$\mu \textrm{slope}$']
-    SIM_c:             r"$c_{\rm int}$"
-    SIM_beta:          r"$\beta_{\rm int}$"
+    DistGaussian_EVOL: [r'$\mu$', r'$\sigma$', r'$\mu slope$']
+    SIM_c:             r"$c_{int}$"
+    SIM_beta:          r"$\beta_{int}$"
     SIM_RV:            r"$R_V$"
     SIM_EBV:           r"$EBV$"
     SIM_x1:            r"$x_1$"
     STEP:              r'$\gamma$'
-    SCATTER:           r'$\sigma_{\rm int}$'
+    SCATTER:           r'$\sigma_{int}$'
     DistLogistic:      [r"$L$", r"$k$", r'$\sigma$']
