@@ -814,7 +814,7 @@ def distancinator(x0_obs, x0_err, x1_obs, x1_err, c_obs, c_err, dist_mod):
 ## BEGIN PRIORS
 ######################
 
-def _build_distribution_priors(param_names, dicts, device='cpu'):
+def build_distribution_priors(param_names, dicts, device='cpu'):
     """Build the list of BoxUniform priors for distribution parameters only (no STEP/SCATTER)."""
     function_dict, split_dict, priors_dict, corr_dict = dicts
     list_o_priors = []
@@ -932,7 +932,7 @@ def _build_distribution_priors(param_names, dicts, device='cpu'):
     return list_o_priors
 
 
-def _build_special_priors(param_names, dicts, device='cpu'):
+def build_special_priors(param_names, dicts, device='cpu'):
     """Build the list of priors for STEP and SCATTER (appended last in theta)."""
     _, _, priors_dict, _ = dicts
     list_o_priors = []
@@ -957,8 +957,8 @@ def _build_special_priors(param_names, dicts, device='cpu'):
 
 
 def prior_generator(param_names, dicts, device='cpu'):
-    all_priors = _build_distribution_priors(param_names, dicts, device=device) + \
-                 _build_special_priors(param_names, dicts, device=device)
+    all_priors = build_distribution_priors(param_names, dicts, device=device) + \
+                 build_special_priors(param_names, dicts, device=device)
     print(f"Added {len(all_priors)} priors")
     return MultipleIndependent(all_priors, device=device)
 

@@ -151,12 +151,24 @@ if __name__ == "__main__":
     dicts_1 = [infos['Functions'], infos['Splits'], infos['Priors'], infos['Correlations']]
     param_names_1 = infos['param_names']
     params_to_fit_1 = parameter_generation(param_names_1, dicts_1)
-    priors_1 = prior_generator(param_names_1, dicts_1)
     layout_1 = build_layout(params_to_fit_1, dicts_1)
+
+    mixture_1 = 'Population_B' in infos
+    if mixture_1:
+        dicts_1B = [infos['Functions'], infos['Splits'],
+                    infos['Population_B']['Priors'], infos['Correlations']]
+        priors_A = build_distribution_priors(param_names_1, dicts_1)
+        priors_B = build_distribution_priors(param_names_1, dicts_1B)
+        mix = infos['Population_B']['mixing_prior']
+        f_prior = BoxUniform(low=torch.tensor([mix[0]]), high=torch.tensor([mix[1]]))
+        special = build_special_priors(param_names_1, dicts_1)
+        priors_1 = MultipleIndependent(priors_A + priors_B + [f_prior] + special)
+    else:
+        priors_1 = prior_generator(param_names_1, dicts_1)
 
     nominal_sim = make_batched_simulator(
         layout_1, df, param_names_1, parameters_to_condition_on,
-        dicts_1, dfdata, sub_batch=500, device=device
+        dicts_1, dfdata, sub_batch=500, device=device, mixture=mixture_1
     )
 
     print(f"Simulating {num_simulations} from nominal model ({args.CONFIG})...")
@@ -179,12 +191,24 @@ if __name__ == "__main__":
                     comp_infos['Priors'], comp_infos['Correlations']]
         param_names_2 = comp_infos['param_names']
         params_to_fit_2 = parameter_generation(param_names_2, dicts_2)
-        priors_2 = prior_generator(param_names_2, dicts_2)
         layout_2 = build_layout(params_to_fit_2, dicts_2)
+
+        mixture_2 = 'Population_B' in comp_infos
+        if mixture_2:
+            dicts_2B = [comp_infos['Functions'], comp_infos['Splits'],
+                        comp_infos['Population_B']['Priors'], comp_infos['Correlations']]
+            priors_2A = build_distribution_priors(param_names_2, dicts_2)
+            priors_2B = build_distribution_priors(param_names_2, dicts_2B)
+            mix2 = comp_infos['Population_B']['mixing_prior']
+            f_prior_2 = BoxUniform(low=torch.tensor([mix2[0]]), high=torch.tensor([mix2[1]]))
+            special_2 = build_special_priors(param_names_2, dicts_2)
+            priors_2 = MultipleIndependent(priors_2A + priors_2B + [f_prior_2] + special_2)
+        else:
+            priors_2 = prior_generator(param_names_2, dicts_2)
 
         comp_sim = make_batched_simulator(
             layout_2, df, param_names_2, parameters_to_condition_on,
-            dicts_2, dfdata, sub_batch=500, device=device
+            dicts_2, dfdata, sub_batch=500, device=device, mixture=mixture_2
         )
 
         print(f"Simulating {num_simulations} from comparison model ({model_path})...")

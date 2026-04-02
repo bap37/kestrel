@@ -103,9 +103,23 @@ if __name__ == "__main__":
     param_names = infos['param_names']
 
     params_to_fit = parameter_generation(param_names, dicts)
-    priors = prior_generator(param_names, dicts, device=device)
-
     layout = build_layout(params_to_fit, dicts)
+
+    mixture = 'Population_B' in infos
+    if mixture:
+        dicts_B = [infos['Functions'], infos['Splits'],
+                   infos['Population_B']['Priors'], infos['Correlations']]
+        priors_A = build_distribution_priors(param_names, dicts, device=device)
+        priors_B = build_distribution_priors(param_names, dicts_B, device=device)
+        mix = infos['Population_B']['mixing_prior']
+        f_prior = BoxUniform(
+            low=torch.tensor([mix[0]], dtype=torch.float32, device=device),
+            high=torch.tensor([mix[1]], dtype=torch.float32, device=device))
+        special = build_special_priors(param_names, dicts, device=device)
+        priors = MultipleIndependent(priors_A + priors_B + [f_prior] + special, device=device)
+        print(f"Mixture mode: {len(priors_A)} pop A + {len(priors_B)} pop B + 1 mixing + {len(special)} special = {len(priors_A)+len(priors_B)+1+len(special)} total priors")
+    else:
+        priors = prior_generator(param_names, dicts, device=device)
 
 
     ndim = len(parameters_to_condition_on)
@@ -154,7 +168,7 @@ if __name__ == "__main__":
 
         sim_for_training = make_batched_simulator(layout, df,
                                 param_names,parameters_to_condition_on,
-                                dicts, dfdata, device=device)
+                                dicts, dfdata, device=device, mixture=mixture)
         batched = True
 
     if args.SIMULATE:
