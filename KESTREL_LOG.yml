@@ -1,5 +1,6 @@
 param_names:
     SIM_c
+    SIM_beta
     SIM_x1
     SIM_EBV
     SIM_RV

@@ -152,7 +152,8 @@ def build_layout(param_names, dicts):
 
 
 def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
-                           dicts, dfdata, sub_batch=10, device="cpu", debug=False):
+                           dicts, dfdata, sub_batch=10, device="cpu", debug=False,
+                           mixture=False):
     function_dict, split_dict, priors_dict, corr_dict = dicts
     validate_order(param_names, dicts)
 
@@ -204,22 +205,21 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
     N = len(df)
     n_target = len(dfdata)
 
-    def _simulate_sub_batch(theta):
-        """Fully batched: theta is (B, n_params), returns (B, n_target, n_features)."""
-        if theta.ndim == 1:
-            theta = theta.unsqueeze(0)
-        B = theta.shape[0]
-        device = theta.device
+    # Mixture mode: compute how many params per population
+    if mixture:
+        n_pop_params = sum(layout.counts[d] * layout.n_params[d] for d in layout.counts)
+        f_idx = 2 * n_pop_params
 
-        joint_weights = torch.ones(B, N, device=device)
+    def _compute_joint_weights(theta_pop, B, dev):
+        """Compute importance weights for a single population's parameters."""
+        joint_weights = torch.ones(B, N, device=dev)
         high_flag = False
-        
-        # --- Trying to replace Matt's stuff
+
         for dist in layout.slices:
             if layout.counts[dist] == 0:
-                continue 
-        
-            theta_dist = theta[:, layout.slices[dist]]
+                continue
+
+            theta_dist = theta_pop[:, layout.slices[dist]]
             n_param = layout.n_params[dist]
             theta_dist = theta_dist.view(B, layout.counts[dist], n_param)
 
@@ -232,20 +232,18 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
                 if "_HIGH_" in name:
                     name = name.split("_HIGH_")[0]
                     high_flag = True
-                    
+
                 theta_i = theta_dist[:, i, :]
                 x = df_tensor[name]  # (N,)
                 if debug: print(name, theta_dist.shape)
                 batch_size = B
-                #Very quickly scan the correlation dictionary for any correlations; otherwise set to none
                 correlation = df_tensor.get(corr_dict.get(name)) if corr_dict.get(name) else None
 
-                #This is pretty heinous... 
-                try: 
+                try:
                     steptype, split_param, split_val = split_dict[name]
                 except KeyError:
                     steptype, split_param, split_val = None, None, None
-                
+
                 if (name in split_dict) & (steptype == "Stepwise"):
                     split_tensor = df_tensor[split_param]
 
@@ -254,10 +252,10 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
                         high_flag = False
                     else:
                         mask = split_tensor < split_val
-                    
-                    weights = torch.ones(batch_size, N, device=device)
 
-                    x_sub = x[mask]  # still on GPU
+                    weights = torch.ones(batch_size, N, device=dev)
+
+                    x_sub = x[mask]
                     density_sub = function_dict[name](x_sub, theta_i, correlation)
                     density_sub = torch.clamp(density_sub, min=0.0)
 
@@ -274,12 +272,30 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
 
                 joint_weights *= weights
 
+        return joint_weights
+
+    def _simulate_sub_batch(theta):
+        """Fully batched: theta is (B, n_params), returns (B, n_target, n_features)."""
+        if theta.ndim == 1:
+            theta = theta.unsqueeze(0)
+        B = theta.shape[0]
+        dev = theta.device
+
+        if mixture:
+            theta_A = theta[:, :n_pop_params]
+            theta_B = theta[:, n_pop_params:2*n_pop_params]
+            f = theta[:, f_idx].unsqueeze(1)  # (B, 1)
+            joint_weights = f * _compute_joint_weights(theta_A, B, dev) \
+                      + (1 - f) * _compute_joint_weights(theta_B, B, dev)
+        else:
+            joint_weights = _compute_joint_weights(theta, B, dev)
+
         # --- Normalise ---
         weight_sum = joint_weights.sum(dim=1, keepdim=True)  # (B, 1)
         bad_mask = (weight_sum.squeeze(1) == 0)
 
         joint_weights[bad_mask] = 1.0
-        weight_sum = torch.where(weight_sum == 0, torch.tensor(float(N)), weight_sum)
+        weight_sum = torch.where(weight_sum == 0, torch.tensor(float(N), device=dev), weight_sum)
         normalized_weights = joint_weights / weight_sum
 
         # --- ESS check: mark low-ESS draws as bad ---
@@ -545,6 +561,13 @@ def load_kestrel(filename):
     except KeyError:
         pass
 
+    if 'Population_B' in raw_yaml:
+        pop_b = raw_yaml['Population_B']
+        for entry in pop_b['Priors']:
+            for n in range(len(pop_b['Priors'][entry])):
+                pop_b['Priors'][entry][n] = ast.literal_eval(pop_b['Priors'][entry][n])
+        pop_b['mixing_prior'] = ast.literal_eval(pop_b['mixing_prior'])
+
     return raw_yaml
 
 def load_data(simfilename, datfilename):
@@ -791,28 +814,26 @@ def distancinator(x0_obs, x0_err, x1_obs, x1_err, c_obs, c_err, dist_mod):
 ## BEGIN PRIORS
 ######################
 
-def prior_generator(param_names, dicts, device='cpu'):
-
+def _build_distribution_priors(param_names, dicts, device='cpu'):
+    """Build the list of BoxUniform priors for distribution parameters only (no STEP/SCATTER)."""
     function_dict, split_dict, priors_dict, corr_dict = dicts
     list_o_priors = []
-    
+
     params_to_avoid = ['EVOL', 'STEP', 'SCATTER']
 
     for name in param_names:
-        #We want to parse evolution parameters separately, so break the loop if we find one. 
         if name in params_to_avoid:
             continue
 
         if "_HIGH_" in name:
             name = name.split("_HIGH_")[0]
 
-        func_name = function_dict[name].__name__        
-        
+        func_name = function_dict[name].__name__
+
         if "Gaussian" in func_name:
             mu0, sigma0 = priors_dict[name]
             mu_prior, sigma_prior = TwoDBoxPrior(mu0, sigma0, device=device)
             list_o_priors.extend([mu_prior, sigma_prior])
-            #EVOL parameters are assessed here. 
             if name in split_dict:
                 evol_type = (split_dict[name][0])
                 if evol_type == "Stepwise":
@@ -825,7 +846,7 @@ def prior_generator(param_names, dicts, device='cpu'):
                             )
                     list_o_priors.extend([slope_prior])
 
-                
+
         elif "DistExponential" in func_name:
             tau0 = priors_dict[name][0]
 
@@ -833,7 +854,7 @@ def prior_generator(param_names, dicts, device='cpu'):
                 low= torch.tensor([tau0[0]], dtype=torch.float32, device=device),
                 high=torch.tensor([tau0[1]], dtype=torch.float32, device=device)
                     )
-            
+
             list_o_priors.append(tau_prior)
 
             if name in split_dict:
@@ -853,7 +874,7 @@ def prior_generator(param_names, dicts, device='cpu'):
             mu1, sigma1, mu2, sigma2, a, need_positive = priors_dict[name]
 
             mu1_prior = BoxUniform(
-                low= torch.tensor([mu1[0]], dtype=torch.float32, device=device), 
+                low= torch.tensor([mu1[0]], dtype=torch.float32, device=device),
                 high=torch.tensor([mu1[1]], dtype=torch.float32, device=device)
                 )
 
@@ -863,7 +884,7 @@ def prior_generator(param_names, dicts, device='cpu'):
                 )
 
             mu2_prior = BoxUniform(
-                low= torch.tensor([mu2[0]], dtype=torch.float32, device=device), 
+                low= torch.tensor([mu2[0]], dtype=torch.float32, device=device),
                 high=torch.tensor([mu2[1]], dtype=torch.float32, device=device)
                 )
 
@@ -876,8 +897,8 @@ def prior_generator(param_names, dicts, device='cpu'):
                 low= torch.tensor([a[0]], dtype=torch.float32, device=device),
                 high=torch.tensor([a[1]], dtype=torch.float32, device=device)
                 )
-            
-            
+
+
             list_o_priors.extend([mu1_prior, sigma1_prior, mu2_prior, sigma2_prior, a_prior])
 
             if name in split_dict:
@@ -908,31 +929,38 @@ def prior_generator(param_names, dicts, device='cpu'):
                 )
             list_o_priors.extend([L_prior, k_prior, sigma_prior])
 
+    return list_o_priors
+
+
+def _build_special_priors(param_names, dicts, device='cpu'):
+    """Build the list of priors for STEP and SCATTER (appended last in theta)."""
+    _, _, priors_dict, _ = dicts
+    list_o_priors = []
+
     if "STEP" in param_names:
         step0 = priors_dict["STEP"][0]
-
         step_prior = BoxUniform(
-            low= torch.tensor([step0[0]], dtype=torch.float32, device=device), 
+            low= torch.tensor([step0[0]], dtype=torch.float32, device=device),
             high=torch.tensor([step0[1]], dtype=torch.float32, device=device)
             )
         list_o_priors.extend([step_prior])
 
-
     if "SCATTER" in param_names:
         scatter0 = priors_dict["SCATTER"][0]
-
         scatter_prior = BoxUniform(
-            low= torch.tensor([scatter0[0]], dtype=torch.float32, device=device), 
+            low= torch.tensor([scatter0[0]], dtype=torch.float32, device=device),
             high=torch.tensor([scatter0[1]], dtype=torch.float32, device=device)
             )
         list_o_priors.extend([scatter_prior])
 
-    #for n, p in enumerate(list_o_priors):
-    #    print(p)
+    return list_o_priors
 
-    print(f"Added {len(list_o_priors)} priors")
-                    
-    return MultipleIndependent(list_o_priors, device=device)
+
+def prior_generator(param_names, dicts, device='cpu'):
+    all_priors = _build_distribution_priors(param_names, dicts, device=device) + \
+                 _build_special_priors(param_names, dicts, device=device)
+    print(f"Added {len(all_priors)} priors")
+    return MultipleIndependent(all_priors, device=device)
 
 def TwoDBoxPrior(param_1, param_2, device="cpu"):
     """
