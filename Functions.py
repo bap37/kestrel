@@ -325,3 +325,22 @@ def DistTruncatedGaussian(x, theta, correlation=None, low=1.2, high=float("inf")
     truncated_pdf[mask] = pdf[mask] / Z.expand_as(pdf)[mask]
 
     return truncated_pdf
+
+def DistDelta(theta):
+    """
+    Gaussian likelihood for batched θ.
+
+    x:     Tensor of shape (N,) or (batch_size, N)
+    theta: Tensor of shape (batch_size, 2) -> [mu, sigma] for each θ
+
+    Returns:
+        Tensor of shape (batch_size, N) -> likelihood of each x for each θ
+    """
+    theta = torch.as_tensor(theta, dtype=torch.float32)
+    
+    # Ensure theta has batch dimension
+    if theta.ndim == 1:
+        theta = theta.unsqueeze(0)  # (1,2)
+    batch_size = theta.shape[0]
+
+    return 

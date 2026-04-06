@@ -42,6 +42,7 @@ def build_layout(param_names, dicts):
 
     idx = {
         "gauss": [],
+        "delta": [],
         "gauss_EVOL": [],
         "exp": [],
         "exp_EVOL": [],
@@ -49,11 +50,12 @@ def build_layout(param_names, dicts):
         "double_gaussian": [],
         "linear": [],
         "stepwise": [],
-        "logistic": []
+        "logistic": [],
     }
 
     order = {
         "gauss": [],
+        "delta": [],
         "gauss_EVOL": [],
         "exp": [],
         "exp_EVOL": [],
@@ -85,6 +87,10 @@ def build_layout(param_names, dicts):
             idx["gauss"].append(i)
             order["gauss"].append(name)
 
+        elif funcname == "DistDelta":
+            idx["delta"].append(i)
+            order["delta"].append(name)
+
         elif funcname == "DistGaussian_EVOL":
             idx["gauss_EVOL"].append(i)
             order["gauss_EVOL"].append(name)
@@ -96,7 +102,6 @@ def build_layout(param_names, dicts):
         elif funcname == "DistExponential_EVOL":
             idx["exp_EVOL"].append(i)
             order["exp_EVOL"].append(name)
-
 
         elif "LogNormal" in funcname:
             idx["lognormal"].append(i)
@@ -118,6 +123,7 @@ def build_layout(param_names, dicts):
             idx["logistic"].append(i)
             order["logistic"].append(name)
 
+
         else:
             AssertionError(f"You have passed {funcname}, which I don't recognise")
 
@@ -126,6 +132,7 @@ def build_layout(param_names, dicts):
     n_params = {
         "gauss": 2,
         "gauss_EVOL":3,
+        "delta":1,
         "exp": 1,
         "exp_EVOL": 2,
         "lognormal": 2,
@@ -149,6 +156,7 @@ def build_layout(param_names, dicts):
 #######################
 ## BEGIN SIMULATOR
 #######################
+
 
 
 def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
@@ -202,6 +210,7 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
             device=device
         )
 
+
     N = len(df)
     n_target = len(dfdata)
 
@@ -210,13 +219,15 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
         n_pop_params = sum(layout.counts[d] * layout.n_params[d] for d in layout.counts)
         f_idx = 2 * n_pop_params
 
-    def _compute_joint_weights(theta_pop, B, dev):
+    def _compute_joint_weights(theta_pop, B, dev, extra_tensors=None):
         """Compute importance weights for a single population's parameters."""
         joint_weights = torch.ones(B, N, device=dev)
         high_flag = False
 
         for dist in layout.slices:
             if layout.counts[dist] == 0:
+                continue
+            if dist == "delta":
                 continue
 
             theta_dist = theta_pop[:, layout.slices[dist]]
@@ -234,8 +245,13 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
                     high_flag = True
 
                 theta_i = theta_dist[:, i, :]
-                x = df_tensor[name]  # (N,)
-                if debug: print(name, theta_dist.shape)
+                if extra_tensors and name in extra_tensors:
+                    x = extra_tensors[name]  # (B, N)
+                else:
+                    x = df_tensor[name]      # (N,)
+                if x.ndim == 1:
+                    x = x.unsqueeze(0)  # (1, N)
+                if debug: print(name, theta_dist.shape, x.ndim)
                 batch_size = B
                 correlation = df_tensor.get(corr_dict.get(name)) if corr_dict.get(name) else None
 
@@ -255,7 +271,7 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
 
                     weights = torch.ones(batch_size, N, device=dev)
 
-                    x_sub = x[mask]
+                    x_sub = x[:,mask]
                     density_sub = function_dict[name](x_sub, theta_i, correlation)
                     density_sub = torch.clamp(density_sub, min=0.0)
 
@@ -281,14 +297,33 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
         B = theta.shape[0]
         dev = theta.device
 
+        mu = None
+        # Identify delta parameters
+        if layout.counts["delta"] > 0:
+            theta_delta = theta[:, layout.slices["delta"]]
+            theta_delta = theta_delta.view(B, layout.counts["delta"], layout.n_params["delta"])
+            for i in range(layout.counts["delta"]):
+                name = layout.order["delta"][i]
+                theta_i = theta_delta[:, i, :]  # (B, 1)
+
+                if name == "SIM_beta":  # or whatever your key is
+                    mu = add_beta_distance(df_tensor, theta_i)  # (B, N)
+
+
+        # --- Build kwargs cleanly ---
+        extra_tensors = {}
+        if mu is not None:
+            extra_tensors["MU"] = mu
+        
+                
         if mixture:
             theta_A = theta[:, :n_pop_params]
             theta_B = theta[:, n_pop_params:2*n_pop_params]
             f = theta[:, f_idx].unsqueeze(1)  # (B, 1)
-            joint_weights = f * _compute_joint_weights(theta_A, B, dev) \
-                      + (1 - f) * _compute_joint_weights(theta_B, B, dev)
+            joint_weights = f * _compute_joint_weights(theta_A, B, dev, extra_tensors=extra_tensors) \
+                      + (1 - f) * _compute_joint_weights(theta_B, B, dev, extra_tensors=extra_tensors)
         else:
-            joint_weights = _compute_joint_weights(theta, B, dev)
+            joint_weights = _compute_joint_weights(theta, B, dev, extra_tensors=extra_tensors)
 
         # --- Normalise ---
         weight_sum = joint_weights.sum(dim=1, keepdim=True)  # (B, 1)
@@ -334,6 +369,11 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
 
         if debug:
             dft = df.iloc[resampled_idx.squeeze(0)]
+            if layout.counts["delta"] > 0:
+                theta_delta = theta[:, layout.slices["delta"]]
+                theta_delta = theta_delta.view(B, layout.counts["delta"], layout.n_params["delta"])
+                theta_delta = theta_delta[:, 0, :]  # (B, 1)
+                dft['SIM_beta'] = theta_delta.item()  # extract scalar
             return dft
 
         return result
@@ -422,6 +462,7 @@ def validate_order(param_names, dicts):
     order_priority = {
         DistGaussian: 2,
         DistTruncatedGaussian: 2,
+        DistDelta:2,
         DistGaussian_EVOL:3,
         DistExponential: 4,
         DistExponential_EVOL: 5,
@@ -533,6 +574,7 @@ def load_kestrel(filename):
         "DistGaussian_EVOL": DistGaussian_EVOL,
         "DistExponential_EVOL": DistExponential_EVOL,
         "DistTruncatedGaussian": DistTruncatedGaussian,
+        "DistDelta": DistDelta,
     }
 
 
@@ -750,6 +792,32 @@ def train_spne(prior, x):
 # (Currently unused)
 ##########################
 
+def add_beta_distance(df_tensor, SN_beta, SN_alpha=0.15):
+    """
+    df_tensor: dict of tensors, each (N,)
+    SN_beta:   (B, 1) or (B,)
+    SN_alpha:  scalar
+    """
+
+    x1 = df_tensor['SIM_x1']  # (N,)
+    c  = df_tensor['SIM_c']   # (N,)
+    mB = df_tensor['SIM_mB']  # (N,)
+
+    # Ensure shapes are broadcastable
+    if SN_beta.ndim == 1:
+        SN_beta = SN_beta.unsqueeze(1)  # (B, 1)
+
+    x1 = x1.unsqueeze(0)  # (1, N)
+    c  = c.unsqueeze(0)
+    mB = mB.unsqueeze(0)
+
+    alpha = SN_alpha
+    beta  = SN_beta
+    M0    = 19.3643
+
+    MU = alpha * x1 - beta * c + M0 + mB  # (B, N)
+
+    return MU
 
 def add_distance(mcmc, df_tensor):
     
@@ -846,6 +914,15 @@ def build_distribution_priors(param_names, dicts, device='cpu'):
                             )
                     list_o_priors.extend([slope_prior])
 
+        elif "DistDelta" in func_name:
+            prior0 = priors_dict[name][0]
+
+            delta_prior = BoxUniform(
+                low= torch.tensor([prior0[0]], dtype=torch.float32, device=device),
+                high=torch.tensor([prior0[1]], dtype=torch.float32, device=device)
+                    )
+
+            list_o_priors.append(delta_prior)
 
         elif "DistExponential" in func_name:
             tau0 = priors_dict[name][0]
