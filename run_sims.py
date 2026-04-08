@@ -1,6 +1,7 @@
 from dustbi_simulator import *
 from Functions import *
 from dustbi_nn import PopulationEmbeddingFull
+from dustbi_calibration import *
 from dustbi_plotting import plot_loss, plot_surviving_priors
 import yaml, os, argparse
 import shutil
@@ -64,6 +65,19 @@ def get_args():
     msg = "Default False. Prints a nice bird :)"
     parser.add_argument("--BIRD", help=msg, action="store_true")
 
+    msg = """
+    Default posterior calibration performance suite.  \n
+    Is boolean. \n
+    Does SBC, rank calibration, and TARP"""
+    parser.add_argument("--CAL1", help=msg, action="store_true")
+    
+    msg = """
+    More in-depth calibration performance \n
+    Is boolean. \n
+    Requires much more hard-coded values that can be found after the if args.CAL2 block. \n
+    Will check cosmology dependence of Rv inference and SNANA-simulation based calibration.    """
+    parser.add_argument("--CAL2", help=msg, action="store_true")
+    
 
     args = parser.parse_args()
     return args
@@ -231,3 +245,39 @@ if __name__ == "__main__":
                 inference._theta = []
                 inference._x = []
 
+    ################
+    if args.CAL2:
+    ################
+
+        #This section is not really for users. 
+        #it is for some hardcore tseting for publication purposes.
+
+        #Requires data to be stored in format of 
+        # CALIB_DATA/output/PIP_BP-DUST-SAMPLES_DATADESSIM_IA-{SIM}/FITOPT000.FITRES.gz"
+        #And 
+        # CALIB_GENPDF/{GENPDF}.DAT"
+        #And 
+        # "ASSIGNMENTS" as a text file that maps the GENPDF to the simulation. 
+
+
+        import pickle
+        import io
+
+        #https://stackoverflow.com/questions/57081727/load-pickle-file-obtained-from-gpu-to-cpu
+        class CPU_Unpickler(pickle.Unpickler):
+            def find_class(self, module, name):
+                if module == 'torch.storage' and name == '_load_from_bytes':
+                    return lambda b: torch.load(io.BytesIO(b), map_location='cpu')
+                else:
+                    return super().find_class(module, name)
+
+        with open(posterior_savename, "rb") as f:
+            posterior = CPU_Unpickler(f).load()
+
+        posterior.to(device="cpu")
+
+        GENPDFS, SIMS = load_assignments('CALIB_DATA/output/ASSIGNMENTS')
+        ranks = run_sbc(SIMS, GENPDFS, posterior, Nsamples=5000, timeout=200, 
+            parameters_to_condition_on=parameters_to_condition_on)
+        save_rank_histogram(ranks, filename="SNANA_RANK_HISTOGRAM.pdf")
+            

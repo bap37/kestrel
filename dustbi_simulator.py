@@ -631,7 +631,10 @@ def load_data(simfilename, datfilename):
     print("Only loading DES Data")
     dfdata = dfdata.loc[dfdata.IDSURVEY == 10]
     #dfdata.loc[dfdata.PROB_SNNV19 < -1., "PROB_SNNV19"] = 1
-    dfdata = dfdata.loc[dfdata.PROB_SNNV19 >= 0.5]
+    try:
+        dfdata = dfdata.loc[dfdata.PROB_SNNV19 >= 0.5]
+    except AttributeError:
+        print("This file doesn't have 'PROB_SNNV19' as a valid key.")
 
     print("Ensuring only valid log masses.")
     dfdata = dfdata.loc[dfdata.HOST_LOGMASS > 0]
