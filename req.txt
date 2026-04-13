@@ -1,7 +1,7 @@
 # This file may be used to create an environment using:
 # $ conda create --name <env> --file <this file>
 # platform: osx-arm64
-_openmp_mutex=4.5=7_kmp_llvm
+openmp_mutex=4.5=7_kmp_llvm
 absl-py=2.4.0=pypi_0
 anesthetic=2.13.1=pypi_0
 anyio=4.12.1=pyhcf101f3_0
