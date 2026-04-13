@@ -32,23 +32,23 @@ pip install -e .
 
 **Simulate training data:**
 ```bash
-python scripts/run_sims.py --CONFIG KESTREL.yml --SIMULATE
+python scripts/run_sims.py --CONFIG "config_files/KESTREL.yml" --SIMULATE
 ```
 
 **Train the network** (requires simulations to exist first):
 ```bash
-python scripts/run_sims.py --CONFIG KESTREL.yml --TRAIN
+python scripts/run_sims.py --CONFIG "config_files/KESTREL.yml" --TRAIN
 ```
 
 **Both in sequence** (as in `scripts/launcher.job` for SLURM on NERSC):
 ```bash
-python scripts/run_sims.py --CONFIG KESTREL.yml --SIMULATE
-python scripts/run_sims.py --CONFIG KESTREL.yml --TRAIN
+python scripts/run_sims.py --CONFIG "config_files/KESTREL.yml" --SIMULATE
+python scripts/run_sims.py --CONFIG "config_files/KESTREL.yml" --TRAIN
 ```
 
 **Neural Ratio Estimation / model comparison** (Bayes factors between configs listed under `Models_Comparison` in the YAML):
 ```bash
-python scripts/run_nre.py --CONFIG KESTREL.yml
+python scripts/run_nre.py --CONFIG "config_files/KESTREL.yml"
 ```
 
 Submit to NERSC GPU nodes via:
