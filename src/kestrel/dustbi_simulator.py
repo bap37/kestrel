@@ -1,18 +1,17 @@
+# import pyro
+# import pyro.distributions as dist
+# from pyro.infer import MCMC, NUTS
+# from pyro.infer.autoguide.initialization import init_to_median
+# Create the layout function to describe input parameters theta
 from dataclasses import dataclass
-import torch
-from torch.distributions import Normal, LogNormal, Exponential, HalfNormal
-from sbi.utils import MultipleIndependent
+
 import numpy as np
-from sbi.utils import BoxUniform
+import torch
+from sbi.utils import BoxUniform, MultipleIndependent
+from torch.distributions import Exponential, HalfNormal, LogNormal, Normal
+
 from .Functions import *
-#import pyro
-#import pyro.distributions as dist
-#from pyro.infer import MCMC, NUTS
-#from pyro.infer.autoguide.initialization import init_to_median
 
-#Create the layout function to describe input parameters theta
-
-from dataclasses import dataclass
 
 @dataclass
 class ThetaLayout:
@@ -25,11 +24,13 @@ class ThetaLayout:
         n_params: Maps distribution-type key → number of theta values per param.
         order:    Maps distribution-type key → ordered list of param names.
     """
+
     slices: dict
     idx: dict
     counts: dict
     n_params: dict
     order: dict
+
 
 def build_theta_layout(counts, n_params):
     """Compute contiguous slice objects into the flat theta vector for each distribution type.
@@ -46,7 +47,6 @@ def build_theta_layout(counts, n_params):
     idx = 0
 
     for dist in counts:
-
         width = counts[dist] * n_params[dist]
         slices[dist] = slice(idx, idx + width)
         idx += width
@@ -100,10 +100,9 @@ def build_layout(param_names, dicts):
         "logistic": [],
     }
 
-    params_to_avoid = ['STEP', 'SCATTER']
+    params_to_avoid = ["STEP", "SCATTER"]
 
     for i, name in enumerate(param_names):
-
         base = name.split("_HIGH_")[0]
 
         if base in params_to_avoid:
@@ -115,7 +114,9 @@ def build_layout(param_names, dicts):
         try:
             funcname = function_dict[base].__name__
         except KeyError:
-            AssertionError(f"I didn't understand how to parse {base}; please ensure it's parsed correctly")
+            AssertionError(
+                f"I didn't understand how to parse {base}; please ensure it's parsed correctly"
+            )
 
         if ("Gaussian" in funcname) and ("EVOL" not in funcname):
             idx["gauss"].append(i)
@@ -157,7 +158,6 @@ def build_layout(param_names, dicts):
             idx["logistic"].append(i)
             order["logistic"].append(name)
 
-
         else:
             AssertionError(f"You have passed {funcname}, which I don't recognise")
 
@@ -165,8 +165,8 @@ def build_layout(param_names, dicts):
 
     n_params = {
         "gauss": 2,
-        "gauss_EVOL":3,
-        "delta":1,
+        "gauss_EVOL": 3,
+        "delta": 1,
         "exp": 1,
         "exp_EVOL": 2,
         "lognormal": 2,
@@ -178,13 +178,7 @@ def build_layout(param_names, dicts):
 
     slices = build_theta_layout(counts, n_params)
 
-    return ThetaLayout(
-        slices=slices,
-        idx=idx,
-        counts=counts,
-        n_params=n_params,
-        order=order
-    )
+    return ThetaLayout(slices=slices, idx=idx, counts=counts, n_params=n_params, order=order)
 
 
 #######################
@@ -192,10 +186,18 @@ def build_layout(param_names, dicts):
 #######################
 
 
-
-def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
-                           dicts, dfdata, sub_batch=10, device="cpu", debug=False,
-                           mixture=False):
+def make_batched_simulator(
+    layout,
+    df,
+    param_names,
+    parameters_to_condition_on,
+    dicts,
+    dfdata,
+    sub_batch=10,
+    device="cpu",
+    debug=False,
+    mixture=False,
+):
     """Build and return a batched importance-sampling simulator closure.
 
     The returned callable accepts a batch of theta vectors (B, n_params) and
@@ -230,7 +232,7 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
     function_dict, split_dict, priors_dict, corr_dict = dicts
     validate_order(param_names, dicts)
 
-    params_to_avoid = ['STEP', 'SCATTER', 'EVOL']
+    params_to_avoid = ["STEP", "SCATTER", "EVOL"]
 
     splits = list({v[1] for v in split_dict.values()})
 
@@ -238,12 +240,9 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
     all_cols = list(set(list(priors_dict.keys()) + splits + parameters_to_condition_on))
 
     # Remove anything that contains any of the substrings
-    all_cols = [
-        col for col in all_cols
-        if not any(substr in col for substr in params_to_avoid)
-    ]
+    all_cols = [col for col in all_cols if not any(substr in col for substr in params_to_avoid)]
 
-    #print(all_cols)
+    # print(all_cols)
 
     df_tensor = {
         col: torch.tensor(df[col].to_numpy(), dtype=torch.float32, device=device)
@@ -256,25 +255,24 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
     )  # (N, n_features)
 
     if "STEP" in param_names:
-    #Calculate indices for things that need the "mass" step added to them.
-        steps_to_add = ['MURES']
+        # Calculate indices for things that need the "mass" step added to them.
+        steps_to_add = ["MURES"]
         step_indices = torch.tensor(
             [parameters_to_condition_on.index(c) for c in steps_to_add],
             dtype=torch.long,
-            device=device
+            device=device,
         )
 
         y_idx = parameters_to_condition_on.index(split_dict["STEP"][1])
         step_threshold = split_dict["STEP"][2]
 
     if "SCATTER" in param_names:
-        steps_to_add = ['MURES', 'mB']
+        steps_to_add = ["MURES", "mB"]
         scatter_indices = torch.tensor(
             [parameters_to_condition_on.index(c) for c in steps_to_add],
             dtype=torch.long,
-            device=device
+            device=device,
         )
-
 
     N = len(df)
     n_target = len(dfdata)
@@ -313,10 +311,11 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
                 if extra_tensors and name in extra_tensors:
                     x = extra_tensors[name]  # (B, N)
                 else:
-                    x = df_tensor[name]      # (N,)
+                    x = df_tensor[name]  # (N,)
                 if x.ndim == 1:
                     x = x.unsqueeze(0)  # (1, N)
-                if debug: print(name, theta_dist.shape, x.ndim)
+                if debug:
+                    print(name, theta_dist.shape, x.ndim)
                 batch_size = B
                 correlation = df_tensor.get(corr_dict.get(name)) if corr_dict.get(name) else None
 
@@ -336,7 +335,7 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
 
                     weights = torch.ones(batch_size, N, device=dev)
 
-                    x_sub = x[:,mask]
+                    x_sub = x[:, mask]
                     density_sub = function_dict[name](x_sub, theta_i, correlation)
                     density_sub = torch.clamp(density_sub, min=0.0)
 
@@ -374,32 +373,31 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
                 if name == "SIM_beta":  # or whatever your key is
                     mu = add_beta_distance(df_tensor, theta_i)  # (B, N)
 
-
         # --- Build kwargs cleanly ---
         extra_tensors = {}
         if mu is not None:
             extra_tensors["MU"] = mu
 
-
         if mixture:
             theta_A = theta[:, :n_pop_params]
-            theta_B = theta[:, n_pop_params:2*n_pop_params]
+            theta_B = theta[:, n_pop_params : 2 * n_pop_params]
             f = theta[:, f_idx].unsqueeze(1)  # (B, 1)
-            joint_weights = f * _compute_joint_weights(theta_A, B, dev, extra_tensors=extra_tensors) \
-                      + (1 - f) * _compute_joint_weights(theta_B, B, dev, extra_tensors=extra_tensors)
+            joint_weights = f * _compute_joint_weights(
+                theta_A, B, dev, extra_tensors=extra_tensors
+            ) + (1 - f) * _compute_joint_weights(theta_B, B, dev, extra_tensors=extra_tensors)
         else:
             joint_weights = _compute_joint_weights(theta, B, dev, extra_tensors=extra_tensors)
 
         # --- Normalise ---
         weight_sum = joint_weights.sum(dim=1, keepdim=True)  # (B, 1)
-        bad_mask = (weight_sum.squeeze(1) == 0)
+        bad_mask = weight_sum.squeeze(1) == 0
 
         joint_weights[bad_mask] = 1.0
         weight_sum = torch.where(weight_sum == 0, torch.tensor(float(N), device=dev), weight_sum)
         normalized_weights = joint_weights / weight_sum
 
         # --- ESS check: mark low-ESS draws as bad ---
-        ess = 1.0 / torch.sum(normalized_weights ** 2, dim=1)  # (B,)
+        ess = 1.0 / torch.sum(normalized_weights**2, dim=1)  # (B,)
         bad_mask = bad_mask | (ess < n_target)
 
         # --- Batched multinomial: draw n_target samples per theta ---
@@ -410,18 +408,18 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
         # --- Batched output tensor indexing ---
         result = output_stack[resampled_idx]  # (B, n_target, n_features)
 
-        #then add whatever proposed step is necessary; I will need to come back to this to make it less hard-coded
+        # then add whatever proposed step is necessary; I will need to come back to this to make it less hard-coded
         if "STEP" in param_names:
             if "SCATTER" in param_names:
                 temp_index = -2
             else:
                 temp_index = -1
-            gamma = theta[:, temp_index].unsqueeze(1)       # (B,1)
-            y = result[:, :, y_idx]                 # (B, n_target)
-            step = torch.where(y < step_threshold, -gamma/2, gamma/2)  # (B, n_target)
+            gamma = theta[:, temp_index].unsqueeze(1)  # (B,1)
+            y = result[:, :, y_idx]  # (B, n_target)
+            step = torch.where(y < step_threshold, -gamma / 2, gamma / 2)  # (B, n_target)
             result[:, :, step_indices] += step.unsqueeze(-1)
 
-        #Then if grey scatter is enabled, add it to this nonsense.
+        # Then if grey scatter is enabled, add it to this nonsense.
         if "SCATTER" in param_names:
             temp_index = -1
             scatter = theta[:, temp_index].view(-1, 1, 1)
@@ -430,7 +428,7 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
             result[:, :, scatter_indices] += noise
 
         # --- Fill bad simulations with NaN ---
-        result[bad_mask] = float('nan')
+        result[bad_mask] = float("nan")
 
         if debug:
             dft = df.iloc[resampled_idx.squeeze(0)]
@@ -438,11 +436,10 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
                 theta_delta = theta[:, layout.slices["delta"]]
                 theta_delta = theta_delta.view(B, layout.counts["delta"], layout.n_params["delta"])
                 theta_delta = theta_delta[:, 0, :]  # (B, 1)
-                dft['SIM_beta'] = theta_delta.item()  # extract scalar
+                dft["SIM_beta"] = theta_delta.item()  # extract scalar
             return dft
 
         return result
-
 
     def batched_simulator(theta_batch):
         """Process theta_batch in sub-batches to control memory."""
@@ -459,10 +456,10 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
     return batched_simulator
 
 
-
 ############################
 ### BEGIN SUPPORT FUNCTIONS
 ###########################
+
 
 def preprocess_input_distribution(df, cols):
     """Convert selected DataFrame columns into a dict of float32 tensors.
@@ -474,10 +471,7 @@ def preprocess_input_distribution(df, cols):
     Returns:
         Dict mapping column name → 1-D float32 Tensor.
     """
-    return {
-        col: torch.tensor(df[col].to_numpy(), dtype=torch.float32)
-        for col in cols
-    }
+    return {col: torch.tensor(df[col].to_numpy(), dtype=torch.float32) for col in cols}
 
 
 def parameter_generation(list_of_parameter_names, dicts):
@@ -500,14 +494,14 @@ def parameter_generation(list_of_parameter_names, dicts):
 
     for name in list_of_parameter_names:
         if name in split_dict.keys():
-            evol_type = (split_dict[name][0])
-            if evol_type == 'Stepwise':
-                if name == "STEP":  #hacky
+            evol_type = split_dict[name][0]
+            if evol_type == "Stepwise":
+                if name == "STEP":  # hacky
                     pass
                 else:
-                    split = (split_dict[name][1])
-                    #print(name,split)
-                    empty_list.append(name+"_HIGH_"+split)
+                    split = split_dict[name][1]
+                    # print(name,split)
+                    empty_list.append(name + "_HIGH_" + split)
         empty_list.append(name)
     return empty_list
 
@@ -540,9 +534,8 @@ def validate_step(param_names, params_to_avoid):
 
     # --- Check order is correct ---
     if present != sorted(present, key=params_to_avoid.index):
-        raise ValueError(
-            f"{present} are not in the correct order {params_to_avoid}"
-        )
+        raise ValueError(f"{present} are not in the correct order {params_to_avoid}")
+
 
 def validate_order(param_names, dicts):
     """
@@ -554,28 +547,30 @@ def validate_order(param_names, dicts):
 
     validate_step(param_names, params_to_avoid)
 
-    #Will need to add other functions in as they are implemented; make sure that Exponential is always last
+    # Will need to add other functions in as they are implemented; make sure that Exponential is always last
     order_priority = {
         DistGaussian: 2,
         DistTruncatedGaussian: 2,
-        DistDelta:2,
-        DistGaussian_EVOL:3,
+        DistDelta: 2,
+        DistGaussian_EVOL: 3,
         DistExponential: 4,
         DistExponential_EVOL: 5,
         DistDoubleGaussian: 6,
         DistLogistic: 7,
     }
 
-    #Temporarily strip "step" from param names, since it's implemented differently.
+    # Temporarily strip "step" from param names, since it's implemented differently.
     new_list = [x for x in param_names if x not in params_to_avoid]
     priorities = [order_priority[function_dict[p]] for p in new_list]
 
-    #Make sure that all entries are in the correct order
+    # Make sure that all entries are in the correct order
     if priorities != sorted(priorities):
-        raise ValueError(f"Please ensure that the parameters are give in the following order: {order_priority.values}")
+        raise ValueError(
+            f"Please ensure that the parameters are give in the following order: {order_priority.values}"
+        )
 
-    #check to make sure that we don't have a split and Correlation enabled at the same time
-    conflicts = [k for k in split_dict if k in corr_dict and corr_dict[k] != 'None']
+    # check to make sure that we don't have a split and Correlation enabled at the same time
+    conflicts = [k for k in split_dict if k in corr_dict and corr_dict[k] != "None"]
     for k in conflicts:
         if "EVOL" not in function_dict[k].__name__:
             raise ValueError(f"Conflict detected for keys: {conflicts}")
@@ -595,52 +590,54 @@ def unspool_labels(list_of_parameter_names, dicts, latex_dict, function_dict):
     params_to_fit = parameter_generation(list_of_parameter_names, dicts)
 
     for name in params_to_fit:
-
         if "_HIGH_" in name:
             name = name.split("_HIGH_")[0]
             high_flag = True
 
         if "Truncated" in name:
-            name = name.replace("Truncated","")
+            name = name.replace("Truncated", "")
 
         try:
-            func_name = (function_dict[name].__name__)
-            func_params = latex_dict[func_name] ; pname = latex_dict[name]
-        except KeyError: #HackY!
+            func_name = function_dict[name].__name__
+            func_params = latex_dict[func_name]
+            pname = latex_dict[name]
+        except KeyError:  # HackY!
             if name == "STEP":
                 pname = "STEP"
                 func_params = [r"$\gamma$"]
-            elif name =="SCATTER":
+            elif name == "SCATTER":
                 pname = "SCATTER"
                 func_params = [r"$\sigma_{\rm int}$"]
             else:
                 print(f"No idea what you passed me: {name}, {func_name}")
 
-
         for _ in func_params:
             if high_flag:
-                latex_string =f'{pname} Hi {_}'
+                latex_string = f"{pname} Hi {_}"
             else:
-                latex_string =f'{pname} {_}'
+                latex_string = f"{pname} {_}"
 
             empty_list.append(latex_string)
         high_flag = False
     return empty_list
+
 
 def split_outputs(output_distribution, split_tensor, split_val, param_list):
     """
     Splits the output tensors to return 4 parameters instead of 2; assumes that split_dict always splits on the same parameter.
     """
     mask_high = split_tensor >= split_val
-    mask_low  = ~mask_high
+    mask_low = ~mask_high
 
     out = []
     for p in param_list:
         v = output_distribution[p]
-        out.extend([
-            torch.where(mask_low,  v, torch.zeros_like(v)),
-            torch.where(mask_high, v, torch.zeros_like(v))
-        ])
+        out.extend(
+            [
+                torch.where(mask_low, v, torch.zeros_like(v)),
+                torch.where(mask_high, v, torch.zeros_like(v)),
+            ]
+        )
 
     return torch.stack(out, dim=-1)
 
@@ -658,10 +655,7 @@ def preprocess_data(parameters_to_condition_on, dfdata):
 
     output_distribution = preprocess_input_distribution(dfdata, parameters_to_condition_on)
 
-    x = torch.stack(
-        [output_distribution[p] for p in parameters_to_condition_on],
-        dim=-1
-    )
+    x = torch.stack([output_distribution[p] for p in parameters_to_condition_on], dim=-1)
 
     return x
 
@@ -683,6 +677,7 @@ def load_kestrel(filename):
     """
 
     import ast
+
     import yaml
 
     FUNCTION_REGISTRY = {
@@ -696,40 +691,37 @@ def load_kestrel(filename):
         "DistDelta": DistDelta,
     }
 
-
-    with open(filename, 'r') as file:
+    with open(filename, "r") as file:
         raw_yaml = yaml.safe_load(file)
 
-    raw_yaml['param_names'] = raw_yaml['param_names'].split(" ")
+    raw_yaml["param_names"] = raw_yaml["param_names"].split(" ")
 
-    raw_yaml['Data_File'] = raw_yaml['Data_File'].split(" ")
-    raw_yaml['Simbank_File'] = raw_yaml['Simbank_File'].split(" ")
+    raw_yaml["Data_File"] = raw_yaml["Data_File"].split(" ")
+    raw_yaml["Simbank_File"] = raw_yaml["Simbank_File"].split(" ")
 
-
-
-    _priors = raw_yaml['Priors']
+    _priors = raw_yaml["Priors"]
     for entry in _priors:
         for n in range(len(_priors[entry])):
-            raw_yaml['Priors'][entry][n] = ast.literal_eval(raw_yaml['Priors'][entry][n])
+            raw_yaml["Priors"][entry][n] = ast.literal_eval(raw_yaml["Priors"][entry][n])
 
-    raw_yaml['Functions'] = {
-        name: FUNCTION_REGISTRY[func_name]
-        for name, func_name in raw_yaml["Functions"].items()
-        }
+    raw_yaml["Functions"] = {
+        name: FUNCTION_REGISTRY[func_name] for name, func_name in raw_yaml["Functions"].items()
+    }
 
     try:
-        raw_yaml['Models_Comparison'] = raw_yaml['Models_Comparison'].split(" ")
+        raw_yaml["Models_Comparison"] = raw_yaml["Models_Comparison"].split(" ")
     except KeyError:
         pass
 
-    if 'Population_B' in raw_yaml:
-        pop_b = raw_yaml['Population_B']
-        for entry in pop_b['Priors']:
-            for n in range(len(pop_b['Priors'][entry])):
-                pop_b['Priors'][entry][n] = ast.literal_eval(pop_b['Priors'][entry][n])
-        pop_b['mixing_prior'] = ast.literal_eval(pop_b['mixing_prior'])
+    if "Population_B" in raw_yaml:
+        pop_b = raw_yaml["Population_B"]
+        for entry in pop_b["Priors"]:
+            for n in range(len(pop_b["Priors"][entry])):
+                pop_b["Priors"][entry][n] = ast.literal_eval(pop_b["Priors"][entry][n])
+        pop_b["mixing_prior"] = ast.literal_eval(pop_b["mixing_prior"])
 
     return raw_yaml
+
 
 def load_data(simfilename, datfilename):
     """Load simulation bank and observed data from FITRES files.
@@ -749,30 +741,29 @@ def load_data(simfilename, datfilename):
         Tuple (df, dfdata) of preprocessed DataFrames.
     """
 
-    from astropy.cosmology import Planck18
     import numpy as np
     import pandas as pd
-    df = pd.read_csv(simfilename, comment="#", sep='\s+')
+    from astropy.cosmology import Planck18
 
-    df['SIM_EBV'] = df.SIM_AV/df.SIM_RV
-    df['MU'] = Planck18.distmod(df.zHD.values).value
+    df = pd.read_csv(simfilename, comment="#", sep=r"\s+")
 
+    df["SIM_EBV"] = df.SIM_AV / df.SIM_RV
+    df["MU"] = Planck18.distmod(df.zHD.values).value
 
-
-    dfdata = pd.read_csv(datfilename,
-                             comment="#", sep=r'\s+')
-    dfdata['MU'] = Planck18.distmod(dfdata.zHD.values).value
+    dfdata = pd.read_csv(datfilename, comment="#", sep=r"\s+")
+    dfdata["MU"] = Planck18.distmod(dfdata.zHD.values).value
 
     print("Only loading DES Data")
     dfdata = dfdata.loc[dfdata.IDSURVEY == 10]
-    #dfdata.loc[dfdata.PROB_SNNV19 < -1., "PROB_SNNV19"] = 1
+    # dfdata.loc[dfdata.PROB_SNNV19 < -1., "PROB_SNNV19"] = 1
     dfdata = dfdata.loc[dfdata.PROB_SNNV19 >= 0.5]
 
     print("Ensuring only valid log masses.")
     dfdata = dfdata.loc[dfdata.HOST_LOGMASS > 0]
-    df = df.loc[df.HOST_LOGMASS > 0 ]
+    df = df.loc[df.HOST_LOGMASS > 0]
 
     return df, dfdata
+
 
 def standardise_data(dft, dfdata, parameters_to_condition_on, param_names):
     """Standardise observable columns to zero mean and unit variance.
@@ -800,45 +791,46 @@ def standardise_data(dft, dfdata, parameters_to_condition_on, param_names):
         if "ERR" in param:
             dfdata[param] = np.log(dfdata[param].values)
             meanval = np.mean(dfdata[param].values)
-            stdval  = np.std(dfdata[param].values)
-            dfdata[param] = (dfdata[param] - meanval)/stdval
+            stdval = np.std(dfdata[param].values)
+            dfdata[param] = (dfdata[param] - meanval) / stdval
 
-            return_dict[param+"_data"] = [meanval, stdval]
+            return_dict[param + "_data"] = [meanval, stdval]
 
             dft[param] = np.log(dft[param].values)
             meanval = np.mean(dft[param].values)
-            stdval  = np.std(dft[param].values)
-            dft[param] = (dft[param] - meanval)/stdval
+            stdval = np.std(dft[param].values)
+            dft[param] = (dft[param] - meanval) / stdval
 
-            return_dict[param+"_sim"] = [meanval, stdval]
+            return_dict[param + "_sim"] = [meanval, stdval]
         else:
-            #Data
+            # Data
             meanval = np.mean(dfdata[param].values)
-            stdval  = np.std(dfdata[param].values)
-            dfdata[param] = (dfdata[param] - meanval)/stdval
+            stdval = np.std(dfdata[param].values)
+            dfdata[param] = (dfdata[param] - meanval) / stdval
 
-            return_dict[param+"_data"] = [meanval, stdval]
+            return_dict[param + "_data"] = [meanval, stdval]
 
-            #sim
+            # sim
             meanval = np.mean(dft[param].values)
-            stdval  = np.std(dft[param].values)
-            dft[param] = (dft[param] - meanval)/stdval
+            stdval = np.std(dft[param].values)
+            dft[param] = (dft[param] - meanval) / stdval
 
-            return_dict[param+"_sim"] = [meanval, stdval]
+            return_dict[param + "_sim"] = [meanval, stdval]
 
-        #Repeat once to standardise input parameters; only applies to the sims
+        # Repeat once to standardise input parameters; only applies to the sims
         for param in param_names:
             meanval = np.mean(dft[param].values)
-            stdval  = np.std(dft[param].values)
-            dft[param] = (dft[param] - meanval)/stdval
+            stdval = np.std(dft[param].values)
+            dft[param] = (dft[param] - meanval) / stdval
 
-            return_dict[param+"_sim"] = [meanval, stdval]
+            return_dict[param + "_sim"] = [meanval, stdval]
 
     return dft, dfdata, return_dict
 
 
-
-def simulate_model(n_sim, n_batch, sims_savename, priors, simulator, inference, device="cpu", batched=True):
+def simulate_model(
+    n_sim, n_batch, sims_savename, priors, simulator, inference, device="cpu", batched=True
+):
     """Run the importance-sampling simulator and stream results to an HDF5 file.
 
     Draws theta batches from the prior, runs the simulator, and writes
@@ -869,7 +861,6 @@ def simulate_model(n_sim, n_batch, sims_savename, priors, simulator, inference, 
     from tqdm import tqdm
 
     with h5py.File(sims_savename, "w") as f:
-
         theta_dim = priors.sample((1,)).shape[-1]
         x_example = simulator(priors.sample((1,)).to(device))
         x_shape = x_example.shape[1:] if x_example.ndim > 1 else (x_example.shape[-1],)
@@ -894,7 +885,6 @@ def simulate_model(n_sim, n_batch, sims_savename, priors, simulator, inference, 
 
         with tqdm(total=n_sim, desc="Running simulations", unit="sim") as pbar:
             for start in range(0, n_sim, n_batch):
-
                 current_bs = min(n_batch, n_sim - start)
 
                 theta_batch = priors.sample((current_bs,)).to(device)
@@ -916,8 +906,8 @@ def simulate_model(n_sim, n_batch, sims_savename, priors, simulator, inference, 
                 x_ds.resize(cursor + current_bs, axis=0)
 
                 # write batch
-                theta_ds[cursor:cursor + current_bs] = theta_np
-                x_ds[cursor:cursor + current_bs] = x_np
+                theta_ds[cursor : cursor + current_bs] = theta_np
+                x_ds[cursor : cursor + current_bs] = x_np
 
                 cursor += current_bs
                 pbar.update(current_bs)
@@ -955,12 +945,11 @@ def train_spne(prior, x):
     proposal = prior
 
     for round in range(num_rounds):
-
         theta, x_sim = simulate_for_sbi(
             batched_simulator,
             proposal,
             num_simulations=num_simulations,
-            )
+        )
 
         inference = inference.append_simulations(theta, x_sim, proposal=proposal)
 
@@ -978,6 +967,7 @@ def train_spne(prior, x):
 # (Currently unused)
 ##########################
 
+
 def add_beta_distance(df_tensor, SN_beta, SN_alpha=0.15):
     """
     df_tensor: dict of tensors, each (N,)
@@ -985,25 +975,26 @@ def add_beta_distance(df_tensor, SN_beta, SN_alpha=0.15):
     SN_alpha:  scalar
     """
 
-    x1 = df_tensor['SIM_x1']  # (N,)
-    c  = df_tensor['SIM_c']   # (N,)
-    mB = df_tensor['SIM_mB']  # (N,)
+    x1 = df_tensor["SIM_x1"]  # (N,)
+    c = df_tensor["SIM_c"]  # (N,)
+    mB = df_tensor["SIM_mB"]  # (N,)
 
     # Ensure shapes are broadcastable
     if SN_beta.ndim == 1:
         SN_beta = SN_beta.unsqueeze(1)  # (B, 1)
 
     x1 = x1.unsqueeze(0)  # (1, N)
-    c  = c.unsqueeze(0)
+    c = c.unsqueeze(0)
     mB = mB.unsqueeze(0)
 
     alpha = SN_alpha
-    beta  = SN_beta
-    M0    = 19.3643
+    beta = SN_beta
+    M0 = 19.3643
 
     MU = alpha * x1 - beta * c + M0 + mB  # (B, N)
 
     return MU
+
 
 def add_distance(mcmc, df_tensor):
     """Compute MURES from MCMC-derived nuisance parameters (alpha, beta, M0).
@@ -1016,18 +1007,23 @@ def add_distance(mcmc, df_tensor):
         MURES tensor: observed distance modulus residual.
     """
 
-    x1_obs = df_tensor['x1'] ; c_obs = df_tensor['c'] ; mB_obs = df_tensor['mB']
+    x1_obs = df_tensor["x1"]
+    c_obs = df_tensor["c"]
+    mB_obs = df_tensor["mB"]
 
     nuisance = mcmc.get_samples()
-    beta = nuisance['beta'].mean() ; alpha = nuisance['alpha'].mean() ; M0 = nuisance['M'].mean()
+    beta = nuisance["beta"].mean()
+    alpha = nuisance["alpha"].mean()
+    M0 = nuisance["M"].mean()
 
     correction = alpha * x1_obs - beta * c_obs + M0 + mB_obs
 
-    MURES = df_tensor['MU'] - correction
+    MURES = df_tensor["MU"] - correction
 
-    return  MURES
+    return MURES
 
-def start_distance(NUM_WARMUP = 50, NUM_SAMPLES = 150, NUM_CHAINS = 1):
+
+def start_distance(NUM_WARMUP=50, NUM_SAMPLES=150, NUM_CHAINS=1):
     """Initialise a Pyro NUTS/MCMC sampler for the SALT2 distance fit.
 
     Args:
@@ -1039,11 +1035,7 @@ def start_distance(NUM_WARMUP = 50, NUM_SAMPLES = 150, NUM_CHAINS = 1):
         salt_mcmc: Configured Pyro MCMC object (not yet run).
     """
 
-    nuts_kernel = NUTS(
-        distancinator,
-        init_strategy=init_to_median(),
-        max_tree_depth=10
-        )
+    nuts_kernel = NUTS(distancinator, init_strategy=init_to_median(), max_tree_depth=10)
 
     salt_mcmc = MCMC(
         nuts_kernel,
@@ -1054,6 +1046,7 @@ def start_distance(NUM_WARMUP = 50, NUM_SAMPLES = 150, NUM_CHAINS = 1):
     )
 
     return salt_mcmc
+
 
 def distancinator(x0_obs, x0_err, x1_obs, x1_err, c_obs, c_err, dist_mod):
     """Pyro probabilistic model for the SALT2 distance fit.
@@ -1079,9 +1072,7 @@ def distancinator(x0_obs, x0_err, x1_obs, x1_err, c_obs, c_err, dist_mod):
         log10_x0 = pyro.sample("log10_x0", dist.Normal(-3.0, 2.0))
         x0_true = torch.pow(10.0, log10_x0)
 
-        pyro.sample("x0_obs",
-                    dist.Normal(x0_true, x0_err),
-                    obs=x0_obs)
+        pyro.sample("x0_obs", dist.Normal(x0_true, x0_err), obs=x0_obs)
 
         correction = alpha * x1_obs - beta * c_obs - M
 
@@ -1090,20 +1081,20 @@ def distancinator(x0_obs, x0_err, x1_obs, x1_err, c_obs, c_err, dist_mod):
 
         mean_mag = -2.5 * torch.log10(x0_true) + 10.635 + correction
 
-        pyro.sample("cosmo",
-                    dist.Normal(mean_mag, total_err),
-                    obs=dist_mod)
+        pyro.sample("cosmo", dist.Normal(mean_mag, total_err), obs=dist_mod)
+
 
 ####################
 ## BEGIN PRIORS
 ######################
 
-def build_distribution_priors(param_names, dicts, device='cpu'):
+
+def build_distribution_priors(param_names, dicts, device="cpu"):
     """Build the list of BoxUniform priors for distribution parameters only (no STEP/SCATTER)."""
     function_dict, split_dict, priors_dict, corr_dict = dicts
     list_o_priors = []
 
-    params_to_avoid = ['EVOL', 'STEP', 'SCATTER']
+    params_to_avoid = ["EVOL", "STEP", "SCATTER"]
 
     for name in param_names:
         if name in params_to_avoid:
@@ -1119,24 +1110,24 @@ def build_distribution_priors(param_names, dicts, device='cpu'):
             mu_prior, sigma_prior = TwoDBoxPrior(mu0, sigma0, device=device)
             list_o_priors.extend([mu_prior, sigma_prior])
             if name in split_dict:
-                evol_type = (split_dict[name][0])
+                evol_type = split_dict[name][0]
                 if evol_type == "Stepwise":
                     list_o_priors.extend([mu_prior, sigma_prior])
                 elif evol_type == "Linear":
-                    slope0 = priors_dict[name+"_EVOL"][0]
+                    slope0 = priors_dict[name + "_EVOL"][0]
                     slope_prior = BoxUniform(
-                        low= torch.tensor([slope0[0]], dtype=torch.float32, device=device),
-                        high=torch.tensor([slope0[1]], dtype=torch.float32, device=device)
-                            )
+                        low=torch.tensor([slope0[0]], dtype=torch.float32, device=device),
+                        high=torch.tensor([slope0[1]], dtype=torch.float32, device=device),
+                    )
                     list_o_priors.extend([slope_prior])
 
         elif "DistDelta" in func_name:
             prior0 = priors_dict[name][0]
 
             delta_prior = BoxUniform(
-                low= torch.tensor([prior0[0]], dtype=torch.float32, device=device),
-                high=torch.tensor([prior0[1]], dtype=torch.float32, device=device)
-                    )
+                low=torch.tensor([prior0[0]], dtype=torch.float32, device=device),
+                high=torch.tensor([prior0[1]], dtype=torch.float32, device=device),
+            )
 
             list_o_priors.append(delta_prior)
 
@@ -1144,88 +1135,88 @@ def build_distribution_priors(param_names, dicts, device='cpu'):
             tau0 = priors_dict[name][0]
 
             tau_prior = BoxUniform(
-                low= torch.tensor([tau0[0]], dtype=torch.float32, device=device),
-                high=torch.tensor([tau0[1]], dtype=torch.float32, device=device)
-                    )
+                low=torch.tensor([tau0[0]], dtype=torch.float32, device=device),
+                high=torch.tensor([tau0[1]], dtype=torch.float32, device=device),
+            )
 
             list_o_priors.append(tau_prior)
 
             if name in split_dict:
-                evol_type = (split_dict[name][0])
+                evol_type = split_dict[name][0]
                 if evol_type == "Stepwise":
                     list_o_priors.extend([tau_prior])
                 elif evol_type == "Linear":
-                    slope0 = priors_dict[name+"_EVOL"]
+                    slope0 = priors_dict[name + "_EVOL"]
                     slope0 = BoxUniform(
-                        low= torch.tensor([slope0[0]], dtype=torch.float32, device=device),
-                        high=torch.tensor([slope0[1]], dtype=torch.float32, device=device)
-                            )
+                        low=torch.tensor([slope0[0]], dtype=torch.float32, device=device),
+                        high=torch.tensor([slope0[1]], dtype=torch.float32, device=device),
+                    )
                     list_o_priors.extend([slope_prior])
-
 
         if func_name == "DistDoubleGaussian":
             mu1, sigma1, mu2, sigma2, a, need_positive = priors_dict[name]
 
             mu1_prior = BoxUniform(
-                low= torch.tensor([mu1[0]], dtype=torch.float32, device=device),
-                high=torch.tensor([mu1[1]], dtype=torch.float32, device=device)
-                )
+                low=torch.tensor([mu1[0]], dtype=torch.float32, device=device),
+                high=torch.tensor([mu1[1]], dtype=torch.float32, device=device),
+            )
 
             sigma1_prior = BoxUniform(
-                low= torch.tensor([sigma1[0]], dtype=torch.float32, device=device),
-                high=torch.tensor([sigma1[1]], dtype=torch.float32, device=device)
-                )
+                low=torch.tensor([sigma1[0]], dtype=torch.float32, device=device),
+                high=torch.tensor([sigma1[1]], dtype=torch.float32, device=device),
+            )
 
             mu2_prior = BoxUniform(
-                low= torch.tensor([mu2[0]], dtype=torch.float32, device=device),
-                high=torch.tensor([mu2[1]], dtype=torch.float32, device=device)
-                )
+                low=torch.tensor([mu2[0]], dtype=torch.float32, device=device),
+                high=torch.tensor([mu2[1]], dtype=torch.float32, device=device),
+            )
 
             sigma2_prior = BoxUniform(
-                low= torch.tensor([sigma2[0]], dtype=torch.float32, device=device),
-                high=torch.tensor([sigma2[1]], dtype=torch.float32, device=device)
-                )
+                low=torch.tensor([sigma2[0]], dtype=torch.float32, device=device),
+                high=torch.tensor([sigma2[1]], dtype=torch.float32, device=device),
+            )
 
             a_prior = BoxUniform(
-                low= torch.tensor([a[0]], dtype=torch.float32, device=device),
-                high=torch.tensor([a[1]], dtype=torch.float32, device=device)
-                )
-
+                low=torch.tensor([a[0]], dtype=torch.float32, device=device),
+                high=torch.tensor([a[1]], dtype=torch.float32, device=device),
+            )
 
             list_o_priors.extend([mu1_prior, sigma1_prior, mu2_prior, sigma2_prior, a_prior])
 
             if name in split_dict:
-                evol_type = (split_dict[name][0])
+                evol_type = split_dict[name][0]
                 if evol_type == "Stepwise":
-                    list_o_priors.extend([mu1_prior, sigma1_prior, mu2_prior, sigma2_prior, a_prior])
+                    list_o_priors.extend(
+                        [mu1_prior, sigma1_prior, mu2_prior, sigma2_prior, a_prior]
+                    )
                 elif evol_type == "Linear":
-                    slope0 = priors_dict[name+"_EVOL"]
+                    slope0 = priors_dict[name + "_EVOL"]
                     slope0 = BoxUniform(
-                        low= torch.tensor([slope0[0]], dtype=torch.float32, device=device),
-                        high=torch.tensor([slope0[1]], dtype=torch.float32, device=device)
-                            )
+                        low=torch.tensor([slope0[0]], dtype=torch.float32, device=device),
+                        high=torch.tensor([slope0[1]], dtype=torch.float32, device=device),
+                    )
                     list_o_priors.extend([slope_prior])
 
         if func_name == "DistLogistic":
             L0, k0, sigma0 = priors_dict[name]
             L_prior = BoxUniform(
-                low= torch.tensor([L0[0]], dtype=torch.float32, device=device),
-                high=torch.tensor([L0[1]], dtype=torch.float32, device=device)
-                )
+                low=torch.tensor([L0[0]], dtype=torch.float32, device=device),
+                high=torch.tensor([L0[1]], dtype=torch.float32, device=device),
+            )
             k_prior = BoxUniform(
-                low= torch.tensor([k0[0]], dtype=torch.float32, device=device),
-                high=torch.tensor([k0[1]], dtype=torch.float32, device=device)
-                )
+                low=torch.tensor([k0[0]], dtype=torch.float32, device=device),
+                high=torch.tensor([k0[1]], dtype=torch.float32, device=device),
+            )
             sigma_prior = BoxUniform(
-                low= torch.tensor([sigma0[0]], dtype=torch.float32, device=device),
-                high=torch.tensor([sigma0[1]], dtype=torch.float32, device=device)
-                )
+                low=torch.tensor([sigma0[0]], dtype=torch.float32, device=device),
+                high=torch.tensor([sigma0[1]], dtype=torch.float32, device=device),
+            )
             list_o_priors.extend([L_prior, k_prior, sigma_prior])
 
     return list_o_priors
 
 
-def build_special_priors(param_names, dicts, device='cpu'):
+def build_special_priors(param_names, dicts, device="cpu"):
     """Build the list of priors for STEP and SCATTER (appended last in theta)."""
     _, _, priors_dict, _ = dicts
     list_o_priors = []
@@ -1233,23 +1224,23 @@ def build_special_priors(param_names, dicts, device='cpu'):
     if "STEP" in param_names:
         step0 = priors_dict["STEP"][0]
         step_prior = BoxUniform(
-            low= torch.tensor([step0[0]], dtype=torch.float32, device=device),
-            high=torch.tensor([step0[1]], dtype=torch.float32, device=device)
-            )
+            low=torch.tensor([step0[0]], dtype=torch.float32, device=device),
+            high=torch.tensor([step0[1]], dtype=torch.float32, device=device),
+        )
         list_o_priors.extend([step_prior])
 
     if "SCATTER" in param_names:
         scatter0 = priors_dict["SCATTER"][0]
         scatter_prior = BoxUniform(
-            low= torch.tensor([scatter0[0]], dtype=torch.float32, device=device),
-            high=torch.tensor([scatter0[1]], dtype=torch.float32, device=device)
-            )
+            low=torch.tensor([scatter0[0]], dtype=torch.float32, device=device),
+            high=torch.tensor([scatter0[1]], dtype=torch.float32, device=device),
+        )
         list_o_priors.extend([scatter_prior])
 
     return list_o_priors
 
 
-def prior_generator(param_names, dicts, device='cpu'):
+def prior_generator(param_names, dicts, device="cpu"):
     """Combine distribution and special priors into a single MultipleIndependent prior.
 
     Calls build_distribution_priors and build_special_priors and wraps the
@@ -1263,10 +1254,12 @@ def prior_generator(param_names, dicts, device='cpu'):
     Returns:
         sbi MultipleIndependent prior object.
     """
-    all_priors = build_distribution_priors(param_names, dicts, device=device) + \
-                 build_special_priors(param_names, dicts, device=device)
+    all_priors = build_distribution_priors(
+        param_names, dicts, device=device
+    ) + build_special_priors(param_names, dicts, device=device)
     print(f"Added {len(all_priors)} priors")
     return MultipleIndependent(all_priors, device=device)
+
 
 def TwoDBoxPrior(param_1, param_2, device="cpu"):
     """
@@ -1274,14 +1267,14 @@ def TwoDBoxPrior(param_1, param_2, device="cpu"):
     """
 
     p1_prior = BoxUniform(
-        low= torch.tensor([param_1[0]], dtype=torch.float32, device=device),
-        high=torch.tensor([param_1[1]], dtype=torch.float32, device=device)
-        )
+        low=torch.tensor([param_1[0]], dtype=torch.float32, device=device),
+        high=torch.tensor([param_1[1]], dtype=torch.float32, device=device),
+    )
 
     p2_prior = BoxUniform(
-        low= torch.tensor([param_2[0]], dtype=torch.float32, device=device),
-        high=torch.tensor([param_2[1]], dtype=torch.float32, device=device)
-        )
+        low=torch.tensor([param_2[0]], dtype=torch.float32, device=device),
+        high=torch.tensor([param_2[1]], dtype=torch.float32, device=device),
+    )
 
     return p1_prior, p2_prior
 
