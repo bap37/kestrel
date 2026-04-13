@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Package install
+*.egg
+pip-wheel-metadata/
+
+# Data and outputs
+*.FITRES
+*.FITRES.gz
+*.h5
+*.pt
+*.pdf
+*.LOG
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Logs
+sbi-logs/
+
+# Config backups
+*.yml.bk
