@@ -23,6 +23,7 @@ pip-wheel-metadata/
 
 # Logs
 sbi-logs/
+scripts/slurm_logs/
 
 # Config backups
 *.yml.bk

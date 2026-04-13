@@ -7,7 +7,7 @@
 #SBATCH --job-name=kestrel
 #SBATCH -c 64
 #SBATCH -q regular
-#SBATCH --output=NOMINAL.LOG
+#SBATCH --output=scripts/slurm_logs/%x_%j.log
 
 conda init
 conda activate SBI
