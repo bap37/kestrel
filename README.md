@@ -31,10 +31,7 @@ pyproject.toml         Package definition and dependencies
 
 ## Installation
 
-Kestrel targets the `SBI` conda environment. From the repo root:
-
 ```bash
-conda activate SBI
 pip install -e .
 ```
 
