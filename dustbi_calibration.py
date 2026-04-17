@@ -34,6 +34,24 @@ def add_distance(df_tensor):
     
     return  MURES
 
+def load_posterior(posterior_savename, device):
+    import pickle
+    import io
+
+    #https://stackoverflow.com/questions/57081727/load-pickle-file-obtained-from-gpu-to-cpu
+    class CPU_Unpickler(pickle.Unpickler):
+        def find_class(self, module, name):
+            if module == 'torch.storage' and name == '_load_from_bytes':
+                return lambda b: torch.load(io.BytesIO(b), map_location='cpu')
+            else:
+                return super().find_class(module, name)
+
+    with open(posterior_savename, "rb") as f:
+        posterior = CPU_Unpickler(f).load()
+
+    posterior.to(device=device)
+    return posterior
+
 # -----------------------------
 # SNANA Calibration functions
 # -----------------------------
@@ -180,4 +198,55 @@ def run_sbc(SIMS, GENPDFS, posterior, Nsamples=5000, timeout=60, parameters_to_c
 
     return ranks
 
+def plot_sbc_ranks(ranks, num_bins=20, param_names=None):
+    """
+    Plot SBC rank histograms for each parameter.
 
+    Parameters
+    ----------
+    ranks : np.ndarray
+        Shape (num_sims, num_params)
+    num_bins : int
+        Number of histogram bins
+    param_names : list of str, optional
+        Names of parameters
+    """
+    num_sims, num_params = ranks.shape
+
+    # Default parameter names
+    if param_names is None:
+        param_names = [f"param_{i}" for i in range(num_params)]
+
+    cols = 4
+    rows = int(np.ceil(num_params / cols))
+
+    fig, axes = plt.subplots(rows, cols, figsize=(4*cols, 3*rows))
+    axes = axes.flatten()
+
+    for j in range(num_params):
+        ax = axes[j]
+
+        # Remove NaNs
+        param_ranks = ranks[:, j]
+        param_ranks = param_ranks[~np.isnan(param_ranks)]
+
+        if len(param_ranks) == 0:
+            ax.set_title(f"{param_names[j]} (no data)")
+            continue
+
+        ax.hist(param_ranks, bins=num_bins, density=True, alpha=0.7, color="steelblue")
+
+        # Expected uniform line
+        ax.axhline(1.0 / num_bins, color="red", linestyle="--")
+
+        ax.set_title(param_names[j])
+        ax.set_xlabel("Rank")
+        ax.set_ylabel("Density")
+
+    # Remove unused subplots
+    for k in range(num_params, len(axes)):
+        fig.delaxes(axes[k])
+
+    plt.tight_layout()
+    plt.savefig("bla.pdf")
+    plt.show()

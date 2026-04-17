@@ -245,6 +245,44 @@ if __name__ == "__main__":
                 inference._theta = []
                 inference._x = []
 
+
+    ################
+    if args.CAL1:
+    ################
+
+        #Neeeeeed to clean this up something fierce
+
+        posterior = load_posterior(posterior_savename, device)
+
+        df, dfdata = load_data(simfilename, datfilename)
+
+        print("Adding 'broad' MURES now. ")
+
+    	output_distribution = preprocess_input_distribution(
+	        df, parameters_to_condition_on[:-1]+['x0', 'x0ERR', 'MU'])
+
+
+        MURES_SIMS = add_distance(output_distribution)
+        df['MURES'] = MURES_SIMS
+
+        output_distribution = preprocess_input_distribution(
+            dfdata, parameters_to_condition_on[:-1]+['x0', 'x0ERR', 'MU'])
+
+        MURES_DATA = add_distance(output_distribution)
+        dfdata['MURES'] = MURES_DATA
+
+        #truly hateful
+        labels = unspool_labels(param_names, dicts, infos['Latex_Names'], infos['Functions'])
+        truth = priors.sample()
+            ws = [-0.9, -0.95, -1, -1.05, -1.1]
+        cosmology_dependence(df, ws, posterior, truth, device,
+            parameters_to_condition_on, make_batched_simulator,
+                layout, param_names, dicts, dfdata, priors, labels)
+
+
+
+
+
     ################
     if args.CAL2:
     ################
@@ -260,24 +298,11 @@ if __name__ == "__main__":
         # "ASSIGNMENTS" as a text file that maps the GENPDF to the simulation. 
 
 
-        import pickle
-        import io
-
-        #https://stackoverflow.com/questions/57081727/load-pickle-file-obtained-from-gpu-to-cpu
-        class CPU_Unpickler(pickle.Unpickler):
-            def find_class(self, module, name):
-                if module == 'torch.storage' and name == '_load_from_bytes':
-                    return lambda b: torch.load(io.BytesIO(b), map_location='cpu')
-                else:
-                    return super().find_class(module, name)
-
-        with open(posterior_savename, "rb") as f:
-            posterior = CPU_Unpickler(f).load()
-
-        posterior.to(device="cpu")
+        posterior = load_posterior(posterior_savename, device)
 
         GENPDFS, SIMS = load_assignments('CALIB_DATA/output/ASSIGNMENTS')
-        ranks = run_sbc(SIMS, GENPDFS, posterior, Nsamples=5000, timeout=200, 
+        ranks = run_sbc(SIMS, GENPDFS, posterior, Nsamples=5000, 
+            timeout=40, 
             parameters_to_condition_on=parameters_to_condition_on)
-        save_rank_histogram(ranks, filename="SNANA_RANK_HISTOGRAM.pdf")
+        plot_sbc_ranks(ranks)
             
