@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 from multiprocessing import Process, Queue
 import warnings
 import sys
-from dustbi_calibration import add_distance
+from dustbi_simulator import add_distance
 
 def preprocess_data(parameters_to_condition_on, dfdata, ):
     
