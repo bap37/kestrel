@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 from multiprocessing import Process, Queue
 import warnings
 import sys
+from dustbi_calibration import add_distance
 
 def preprocess_data(parameters_to_condition_on, dfdata, ):
     
@@ -21,18 +22,6 @@ def preprocess_input_distribution(df, cols):
         col: torch.tensor(df[col].to_numpy(), dtype=torch.float32)
         for col in cols
     }
-
-def add_distance(df_tensor):
-    
-    x1_obs = df_tensor['x1'] ; c_obs = df_tensor['c'] ; mB_obs = df_tensor['mB']
-    
-    beta = 3.1 ; alpha = 0.16 ; M0 = -19.3
-    
-    correction = alpha * x1_obs - beta * c_obs + M0 + mB_obs
-        
-    MURES = df_tensor['MU'] - correction
-    
-    return  MURES
 
 def load_posterior(posterior_savename, device):
     import pickle
