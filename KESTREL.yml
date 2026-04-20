@@ -1,6 +1,7 @@
 param_names:
     SIM_c
     SIM_RV
+    SIM_beta
     SIM_x1
     SIM_EBV
     STEP
@@ -11,10 +12,10 @@ parameters_to_condition_on:
     ['c', 'mB', 'x1', 'zHD', 'cERR', 'mBERR', 'x1ERR', 'MU', 'HOST_LOGMASS', 'MURES']
 
 sim_parameters:
-    n_sim:   60_000 
+    n_sim:   100_000 
     n_batch: 500
-    simname: 'posteriors/sims.v5.MIX.h5'
-    posteriorname: 'posteriors/posterior.v5.MIX.pt'
+    simname: 'posteriors/sims.v5.NOM.h5'
+    posteriorname: 'posteriors/posterior.v5.NOM.pt'
 
 #Optional key; for use with run_nre.py. Otherwise leave as None
 Models_Comparison:
@@ -24,7 +25,7 @@ Models_Comparison:
 Data_File:
     "DES5YR.FITRES.gz"
 Simbank_File:
-    "SIM_BANK_SB.FITRES.gz"
+    "SIMBANK_THIRD.FITRES"
 
 
 #Population_B:
@@ -71,28 +72,28 @@ Correlations:
 # Gaussians are formatted as mu then sigma
 
 Priors:
-    SIM_c:    ["(-.1, 0)", "(0.02, 0.1)"]
-    SIM_EBV:  ["(0.05, 0.5)"]
-    SIM_beta: ["(1,2)", "(0.05, 0.3)"]
-    SIM_x1:   ["(-2,2)", "(0.2, 1)"]
-    SIM_x1_EVOL: ["(-0.2,0.2)"]
-    STEP:     ["(-0.2,0.2)"]
-    SCATTER:  ["(0,0.1)"]
-    SIM_RV:   ["(1.5,4)", "(0.5,2)"]
-#    SIM_RV:   ["(1,3)","(-1.5, 2.1)", "(0,.5)"] #L, k, sigma
+    SIM_c:    ['(-.1, 0)', '(0.02, 0.1)']
+    SIM_EBV:  ['(0.05, 0.5)']
+    SIM_beta: ['(1.5,3)', '(0.05, 0.3)']
+    SIM_x1:   ['(-2,2)', '(0.2, 1)']
+    SIM_x1_EVOL: ['(-0.2,0.2)']
+    STEP:     ['(-0.2,0.2)']
+    SCATTER:  ['(0,0.1)']
+    SIM_RV:   ['(1.5,4)', '(0.5,2)']
+#    SIM_RV:   ['(1,3)','(-1.5, 2.1)', '(0,.5)'] #L, k, sigma
 
 
 
 # Fancy latex labels for plotting. Add as you see fit. 
 Latex_Names:
-    DistExponential:   [r'$\tau$']
-    DistGaussian:      [r'$\mu$', r'$\sigma$']
-    DistGaussian_EVOL: [r'$\mu$', r'$\sigma$', r'$\mu slope$']
-    SIM_c:             r"$c_{int}$"
-    SIM_beta:          r"$\beta_{int}$"
-    SIM_RV:            r"$R_V$"
-    SIM_EBV:           r"$EBV$"
-    SIM_x1:            r"$x_1$"
-    STEP:              r'$\gamma$'
-    SCATTER:           r'$\sigma_{int}$'
-    DistLogistic:      [r"$L$", r"$k$", r'$\sigma$']
+    DistExponential:   ['$\tau$']
+    DistGaussian:      ['$\mu$', '$\sigma$']
+    DistGaussian_EVOL: ['$\mu$', '$\sigma$', '$\mu slope$']
+    SIM_c:             '$c_{int}$'
+    SIM_beta:          '$\beta_{int}$'
+    SIM_RV:            '$R_V$'
+    SIM_EBV:           '$EBV$'
+    SIM_x1:            '$x_1$'
+    STEP:              '$\gamma$'
+    SCATTER:           '$\sigma_{int}$'
+    DistLogistic:      ['$L$', '$k$', '$\sigma$']
