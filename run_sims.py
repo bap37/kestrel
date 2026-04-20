@@ -35,7 +35,7 @@ def add_distance(df_tensor):
     
     correction = alpha * x1_obs - beta * c_obs + M0 + mB_obs
         
-    MURES = df_tensor['MU'] - correction
+    MURES =  correction - df_tensor['MU']
     
     return  MURES
 
