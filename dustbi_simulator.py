@@ -361,7 +361,13 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
             temp_index = -1
             scatter = theta[:, temp_index].view(-1, 1, 1)
             scatter = torch.clamp(scatter, min=1e-6)
-            noise = torch.randn_like(result[:, :, scatter_indices]) * scatter
+            noise = torch.randn(
+                result.shape[0], result.shape[1], 1,
+                device=result.device
+            ) * scatter
+
+            noise = noise.expand(-1, -1, len(scatter_indices))
+
             result[:, :, scatter_indices] += noise
 
         # --- Fill bad simulations with NaN ---

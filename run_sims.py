@@ -27,18 +27,6 @@ from sbi.neural_nets import posterior_nn
 #from sbi import analysis as analysis
 from sbi.utils import MultipleIndependent
 
-def add_distance(df_tensor):
-    
-    x1_obs = df_tensor['x1'] ; c_obs = df_tensor['c'] ; mB_obs = df_tensor['mB']
-    
-    beta = 3.1 ; alpha = 0.16 ; M0 = -19.3
-    
-    correction = alpha * x1_obs - beta * c_obs + M0 + mB_obs
-        
-    MURES =  correction - df_tensor['MU']
-    
-    return  MURES
-
 
 def get_args():
     
@@ -274,10 +262,10 @@ if __name__ == "__main__":
         #truly hateful
         labels = unspool_labels(param_names, dicts, infos['Latex_Names'], infos['Functions'])
         truth = priors.sample()
-            ws = [-0.9, -0.95, -1, -1.05, -1.1]
-        cosmology_dependence(df, ws, posterior, truth, device,
-            parameters_to_condition_on, make_batched_simulator,
-                layout, param_names, dicts, dfdata, priors, labels)
+        ws = [-0.9, -0.95, -1, -1.05, -1.1]
+        #cosmology_dependence(df, ws, posterior, truth, device,
+        #    parameters_to_condition_on, make_batched_simulator,
+        #        layout, param_names, dicts, dfdata, priors, labels)
 
 
 
