@@ -199,7 +199,8 @@ def _sbc_rank_plot(
         parameter_labels = [f"dim {i + 1}" for i in range(num_parameters)]
 
     if ranks_labels is None:
-        ranks_labels = [f"rank set {i + 1}" for i in range(num_ranks)]
+        #ranks_labels = [f"rank set {i + 1}" for i in range(num_ranks)]
+        ranks_labels = ['Ranks' for i in range(num_ranks)]
 
     if num_bins is None:
         num_bins = num_sbc_runs // 20

@@ -361,7 +361,13 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
             temp_index = -1
             scatter = theta[:, temp_index].view(-1, 1, 1)
             scatter = torch.clamp(scatter, min=1e-6)
-            noise = torch.randn_like(result[:, :, scatter_indices]) * scatter
+            noise = torch.randn(
+                result.shape[0], result.shape[1], 1,
+                device=result.device
+            ) * scatter
+
+            noise = noise.expand(-1, -1, len(scatter_indices))
+
             result[:, :, scatter_indices] += noise
 
         # --- Fill bad simulations with NaN ---
@@ -612,6 +618,19 @@ def load_kestrel(filename):
 
     return raw_yaml
 
+def add_distance(df_tensor):
+    
+    x1_obs = df_tensor['x1'] ; c_obs = df_tensor['c'] ; mB_obs = df_tensor['mB']
+    
+    beta = 3.1 ; alpha = 0.16 ; M0 = -19.3
+    
+    correction = alpha * x1_obs - beta * c_obs + M0 + mB_obs
+        
+    MURES =  correction - df_tensor['MU']
+    
+    return  MURES
+
+
 def load_data(simfilename, datfilename):
 
     from astropy.cosmology import Planck18
@@ -761,34 +780,7 @@ def simulate_model(n_sim, n_batch, sims_savename, priors, simulator, inference, 
     return theta_valid, p_vals
 
 
-def train_spne(prior, x):
 
-    from sbi.inference import SNPE, simulate_for_sbi
-    from sbi.utils import process_prior
-
-    num_rounds = 5
-    num_simulations = 500
-
-    proposal = prior
-
-    for round in range(num_rounds):
-
-        theta, x_sim = simulate_for_sbi(
-            batched_simulator,
-            proposal,
-            num_simulations=num_simulations,
-            )
-
-        inference = inference.append_simulations(theta, x_sim, proposal=proposal)
-
-        density_estimator = inference.train()
-
-        posterior = inference.build_posterior(density_estimator)
-
-        proposal = posterior.set_default_x(x)
-    
-    return posterior
-    
 
 ##########################
 # MURES Calculation code
@@ -822,7 +814,7 @@ def add_beta_distance(df_tensor, SN_beta, SN_alpha=0.15):
 
     return MU
 
-def add_distance(mcmc, df_tensor):
+def add_mcmc_distance(mcmc, df_tensor):
     
     x1_obs = df_tensor['x1'] ; c_obs = df_tensor['c'] ; mB_obs = df_tensor['mB']
     
