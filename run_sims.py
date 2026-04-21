@@ -200,38 +200,27 @@ if __name__ == "__main__":
 
             for start in range(0, n, chunk_size):
                 end = min(start + chunk_size, n)
-                print(f"Processing chunk {start}:{end}")
-                
-                try:
-                # Load chunk
-                    theta_batch = torch.tensor(theta_total[start:end]).cuda()
-                    x_batch = torch.tensor(x_total[start:end]).cuda()
-                except AssertionError:
-                    theta_batch = torch.tensor(theta_total[start:end])
-                    x_batch = torch.tensor(x_total[start:end])
+                print(f"Appending chunk {start}:{end}")
 
-                # Append simulations
-                inference.append_simulations(theta_batch, x_batch)
+                theta_batch = torch.tensor(theta_total[start:end])
+                x_batch = torch.tensor(x_total[start:end])
 
-                # Train only on this chunk
-                density_estimator = inference.train(
-                    validation_fraction=0.1,
-                    force_first_round_loss=True,  # prior samples; keeps training consistent
-                    training_batch_size=64,
-                )
+                inference.append_simulations(theta_batch, x_batch, data_device="cpu")
 
-                # Build posterior from final density estimator
-                posterior = inference.build_posterior(density_estimator)
+        # Train once on all accumulated data
+        density_estimator = inference.train(
+            validation_fraction=0.1,
+            force_first_round_loss=True,
+            training_batch_size=64,
+        )
 
-                with open(posterior_savename, "wb") as handle:
-                    pickle.dump(posterior, handle)
+        posterior = inference.build_posterior(density_estimator)
 
-                print(f"Chunk {start}:{end} trained and cleared from memory.")
-                plot_loss(inference, posterior_savename.replace(".pt", "_loss.pdf"))
+        with open(posterior_savename, "wb") as handle:
+            pickle.dump(posterior, handle)
 
-                # Clear simulations from inference to save memory
-                inference._theta = []
-                inference._x = []
+        print(f"Posterior saved to {posterior_savename}")
+        plot_loss(inference, posterior_savename.replace(".pt", "_loss.pdf"))
 
 
     ################
@@ -246,8 +235,8 @@ if __name__ == "__main__":
 
         print("Adding 'broad' MURES now. ")
 
-    	output_distribution = preprocess_input_distribution(
-	        df, parameters_to_condition_on[:-1]+['x0', 'x0ERR', 'MU'])
+        output_distribution = preprocess_input_distribution(
+            df, parameters_to_condition_on[:-1]+['x0', 'x0ERR', 'MU'])
 
 
         MURES_SIMS = add_distance(output_distribution)
