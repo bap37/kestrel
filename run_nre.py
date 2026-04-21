@@ -154,21 +154,27 @@ if __name__ == "__main__":
     layout_1 = build_layout(params_to_fit_1, dicts_1)
 
     mixture_1 = 'Population_B' in infos
+    split_positions_1 = None
     if mixture_1:
-        dicts_1B = [infos['Functions'], infos['Splits'],
-                    infos['Population_B']['Priors'], infos['Correlations']]
+        pop_b = infos['Population_B']
+        shared_params_1 = [p for p in pop_b.get('shared_params', []) if p not in ('STEP', 'SCATTER')]
+        split_names_1 = [n for n in param_names_1 if n not in shared_params_1 and n not in ('STEP', 'SCATTER')]
+        dicts_1B = [infos['Functions'], infos['Splits'], pop_b['Priors'], infos['Correlations']]
         priors_A = build_distribution_priors(param_names_1, dicts_1)
-        priors_B = build_distribution_priors(param_names_1, dicts_1B)
-        mix = infos['Population_B']['mixing_prior']
+        priors_B_split = build_distribution_priors(split_names_1, dicts_1B)
+        mix = pop_b['mixing_prior']
         f_prior = BoxUniform(low=torch.tensor([mix[0]]), high=torch.tensor([mix[1]]))
         special = build_special_priors(param_names_1, dicts_1)
-        priors_1 = MultipleIndependent(priors_A + priors_B + [f_prior] + special)
+        priors_1 = MultipleIndependent(priors_A + priors_B_split + [f_prior] + special)
+        split_positions_1 = compute_split_positions(layout_1, shared_params_1)
+        assert len(split_positions_1) == len(priors_B_split)
     else:
         priors_1 = prior_generator(param_names_1, dicts_1)
 
     nominal_sim = make_batched_simulator(
         layout_1, df, param_names_1, parameters_to_condition_on,
-        dicts_1, dfdata, sub_batch=500, device=device, mixture=mixture_1
+        dicts_1, dfdata, sub_batch=500, device=device, mixture=mixture_1,
+        split_positions=split_positions_1
     )
 
     print(f"Simulating {num_simulations} from nominal model ({args.CONFIG})...")
@@ -194,21 +200,27 @@ if __name__ == "__main__":
         layout_2 = build_layout(params_to_fit_2, dicts_2)
 
         mixture_2 = 'Population_B' in comp_infos
+        split_positions_2 = None
         if mixture_2:
-            dicts_2B = [comp_infos['Functions'], comp_infos['Splits'],
-                        comp_infos['Population_B']['Priors'], comp_infos['Correlations']]
+            pop_b2 = comp_infos['Population_B']
+            shared_params_2 = [p for p in pop_b2.get('shared_params', []) if p not in ('STEP', 'SCATTER')]
+            split_names_2 = [n for n in param_names_2 if n not in shared_params_2 and n not in ('STEP', 'SCATTER')]
+            dicts_2B = [comp_infos['Functions'], comp_infos['Splits'], pop_b2['Priors'], comp_infos['Correlations']]
             priors_2A = build_distribution_priors(param_names_2, dicts_2)
-            priors_2B = build_distribution_priors(param_names_2, dicts_2B)
-            mix2 = comp_infos['Population_B']['mixing_prior']
+            priors_2B_split = build_distribution_priors(split_names_2, dicts_2B)
+            mix2 = pop_b2['mixing_prior']
             f_prior_2 = BoxUniform(low=torch.tensor([mix2[0]]), high=torch.tensor([mix2[1]]))
             special_2 = build_special_priors(param_names_2, dicts_2)
-            priors_2 = MultipleIndependent(priors_2A + priors_2B + [f_prior_2] + special_2)
+            priors_2 = MultipleIndependent(priors_2A + priors_2B_split + [f_prior_2] + special_2)
+            split_positions_2 = compute_split_positions(layout_2, shared_params_2)
+            assert len(split_positions_2) == len(priors_2B_split)
         else:
             priors_2 = prior_generator(param_names_2, dicts_2)
 
         comp_sim = make_batched_simulator(
             layout_2, df, param_names_2, parameters_to_condition_on,
-            dicts_2, dfdata, sub_batch=500, device=device, mixture=mixture_2
+            dicts_2, dfdata, sub_batch=500, device=device, mixture=mixture_2,
+            split_positions=split_positions_2
         )
 
         print(f"Simulating {num_simulations} from comparison model ({model_path})...")

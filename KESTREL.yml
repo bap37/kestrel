@@ -38,6 +38,10 @@ Simbank_File:
 #      SIM_EBV:     [“(0.05, 0.5)“]
 #      STEP:        [“(-0.2,0.2)“]
 #      SCATTER:     [“(0,0.1)“]
+#    # Parameters listed here share a single value across both populations
+#    # (pop B uses pop A's value). Any param not listed gets independent pop B values
+#    # drawn from the Priors above. Omit or leave empty for fully-split mixture.
+#    shared_params: [SIM_beta]
 #    mixing_prior:   “(0, 1)”
 
 #########################
