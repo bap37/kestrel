@@ -159,9 +159,35 @@ def build_layout(param_names, dicts):
 
 
 
+def compute_split_positions(layout, shared_params=None):
+    """Return scalar indices within a single-population theta block for parameters
+    that are NOT in ``shared_params`` (i.e. parameters that get independent Pop B values).
+
+    ``_HIGH_`` twins and ``_EVOL`` slopes are handled automatically because
+    ``layout.order`` already expands ``_HIGH_`` entries, and the EVOL slope is
+    absorbed into ``layout.n_params[dist]`` (e.g. ``gauss_EVOL`` has n_params=3).
+
+    When ``shared_params`` is None or empty, every position is returned — i.e.
+    ``len(result) == n_pop_params``, matching the current all-split behaviour.
+    """
+    split_positions = []
+    shared_set = set(shared_params or [])
+    for dist, sl in layout.slices.items():
+        if layout.counts[dist] == 0:
+            continue
+        offset = sl.start
+        n_param = layout.n_params[dist]
+        for i, name in enumerate(layout.order[dist]):
+            base = name.split("_HIGH_")[0]
+            if base in shared_set:
+                continue
+            split_positions.extend(range(offset + i * n_param, offset + (i + 1) * n_param))
+    return split_positions
+
+
 def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
                            dicts, dfdata, sub_batch=10, device="cpu", debug=False,
-                           mixture=False):
+                           mixture=False, split_positions=None):
     function_dict, split_dict, priors_dict, corr_dict = dicts
     validate_order(param_names, dicts)
 
@@ -217,7 +243,14 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
     # Mixture mode: compute how many params per population
     if mixture:
         n_pop_params = sum(layout.counts[d] * layout.n_params[d] for d in layout.counts)
-        f_idx = 2 * n_pop_params
+        # Default: everything is split (current behaviour) when no shared params provided
+        if split_positions is None:
+            split_positions = list(range(n_pop_params))
+        n_split = len(split_positions)
+        f_idx = n_pop_params + n_split
+        # Pre-build index tensor on training device for fast scatter into theta_B
+        split_idx_tensor = torch.as_tensor(split_positions, dtype=torch.long, device=device) \
+            if n_split < n_pop_params else None
 
     def _compute_joint_weights(theta_pop, B, dev, extra_tensors=None):
         """Compute importance weights for a single population's parameters."""
@@ -318,7 +351,15 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
                 
         if mixture:
             theta_A = theta[:, :n_pop_params]
-            theta_B = theta[:, n_pop_params:2*n_pop_params]
+            if split_idx_tensor is None:
+                # Fast path: all params split (original mixture behaviour)
+                theta_B = theta[:, n_pop_params:2 * n_pop_params]
+            else:
+                # Some params shared: clone pop A and overwrite the split positions
+                # with pop B's values from the compact pop_B_split block.
+                theta_B_split = theta[:, n_pop_params:n_pop_params + n_split]
+                theta_B = theta_A.clone()
+                theta_B[:, split_idx_tensor.to(theta.device)] = theta_B_split
             f = theta[:, f_idx].unsqueeze(1)  # (B, 1)
             joint_weights = f * _compute_joint_weights(theta_A, B, dev, extra_tensors=extra_tensors) \
                       + (1 - f) * _compute_joint_weights(theta_B, B, dev, extra_tensors=extra_tensors)

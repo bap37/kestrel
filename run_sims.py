@@ -108,18 +108,25 @@ if __name__ == "__main__":
     layout = build_layout(params_to_fit, dicts)
 
     mixture = 'Population_B' in infos
+    split_positions = None
     if mixture:
-        dicts_B = [infos['Functions'], infos['Splits'],
-                   infos['Population_B']['Priors'], infos['Correlations']]
+        pop_b = infos['Population_B']
+        shared_params = [p for p in pop_b.get('shared_params', []) if p not in ('STEP', 'SCATTER')]
+        # Pop B gets priors only for non-shared params
+        split_names = [n for n in param_names if n not in shared_params and n not in ('STEP', 'SCATTER')]
+        dicts_B = [infos['Functions'], infos['Splits'], pop_b['Priors'], infos['Correlations']]
         priors_A = build_distribution_priors(param_names, dicts, device=device)
-        priors_B = build_distribution_priors(param_names, dicts_B, device=device)
-        mix = infos['Population_B']['mixing_prior']
+        priors_B_split = build_distribution_priors(split_names, dicts_B, device=device)
+        mix = pop_b['mixing_prior']
         f_prior = BoxUniform(
             low=torch.tensor([mix[0]], dtype=torch.float32, device=device),
             high=torch.tensor([mix[1]], dtype=torch.float32, device=device))
         special = build_special_priors(param_names, dicts, device=device)
-        priors = MultipleIndependent(priors_A + priors_B + [f_prior] + special, device=device)
-        print(f"Mixture mode: {len(priors_A)} pop A + {len(priors_B)} pop B + 1 mixing + {len(special)} special = {len(priors_A)+len(priors_B)+1+len(special)} total priors")
+        priors = MultipleIndependent(priors_A + priors_B_split + [f_prior] + special, device=device)
+        split_positions = compute_split_positions(layout, shared_params)
+        assert len(split_positions) == len(priors_B_split), \
+            f"split_positions count ({len(split_positions)}) doesn't match priors_B_split count ({len(priors_B_split)})"
+        print(f"Mixture mode: {len(priors_A)} pop A + {len(priors_B_split)} pop B (split) + 1 mixing + {len(special)} special = {len(priors_A)+len(priors_B_split)+1+len(special)} total priors; {len(shared_params)} param(s) shared: {shared_params}")
     else:
         priors = prior_generator(param_names, dicts, device=device)
 
@@ -170,7 +177,8 @@ if __name__ == "__main__":
 
         sim_for_training = make_batched_simulator(layout, df,
                                 param_names,parameters_to_condition_on,
-                                dicts, dfdata, device=device, mixture=mixture)
+                                dicts, dfdata, device=device, mixture=mixture,
+                                split_positions=split_positions)
         batched = True
 
     if args.SIMULATE:
