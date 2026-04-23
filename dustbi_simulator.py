@@ -46,6 +46,7 @@ def build_layout(param_names, dicts):
         "gauss_EVOL": [],
         "exp": [],
         "exp_EVOL": [],
+        "gamma": [],
         "lognormal": [],
         "double_gaussian": [],
         "linear": [],
@@ -59,6 +60,7 @@ def build_layout(param_names, dicts):
         "gauss_EVOL": [],
         "exp": [],
         "exp_EVOL": [],
+        "gamma": [],
         "lognormal": [],
         "double_gaussian": [],
         "linear": [],
@@ -103,6 +105,10 @@ def build_layout(param_names, dicts):
             idx["exp_EVOL"].append(i)
             order["exp_EVOL"].append(name)
 
+        elif funcname == "DistGamma":
+            idx["gamma"].append(i)
+            order["gamma"].append(name)
+
         elif "LogNormal" in funcname:
             idx["lognormal"].append(i)
             order["lognormal"].append(name)
@@ -135,6 +141,7 @@ def build_layout(param_names, dicts):
         "delta":1,
         "exp": 1,
         "exp_EVOL": 2,
+        "gamma": 2,
         "lognormal": 2,
         "double_gaussian": 5,
         "linear": 2,
@@ -513,8 +520,9 @@ def validate_order(param_names, dicts):
         DistGaussian_EVOL:3,
         DistExponential: 4,
         DistExponential_EVOL: 5,
-        DistDoubleGaussian: 6,
-        DistLogistic: 7,
+        DistGamma: 6,
+        DistDoubleGaussian: 7,
+        DistLogistic: 8,
     }
 
     #Temporarily strip "step" from param names, since it's implemented differently.
@@ -622,6 +630,7 @@ def load_kestrel(filename):
         "DistExponential_EVOL": DistExponential_EVOL,
         "DistTruncatedGaussian": DistTruncatedGaussian,
         "DistDelta": DistDelta,
+        "DistGamma": DistGamma,
     }
 
 
@@ -1041,6 +1050,22 @@ def build_distribution_priors(param_names, dicts, device='cpu'):
                 high=torch.tensor([sigma0[1]], dtype=torch.float32, device=device)
                 )
             list_o_priors.extend([L_prior, k_prior, sigma_prior])
+
+        if func_name == "DistGamma":
+            tau0, gamma0 = priors_dict[name]
+            tau_prior = BoxUniform(
+                low= torch.tensor([tau0[0]], dtype=torch.float32, device=device),
+                high=torch.tensor([tau0[1]], dtype=torch.float32, device=device)
+                )
+            gamma_prior = BoxUniform(
+                low= torch.tensor([gamma0[0]], dtype=torch.float32, device=device),
+                high=torch.tensor([gamma0[1]], dtype=torch.float32, device=device)
+                )
+            list_o_priors.extend([tau_prior, gamma_prior])
+
+
+        else:
+            AssertionError(f"You passed me {func_name}; I do not recognise this.")
 
     return list_o_priors
 
