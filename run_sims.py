@@ -187,7 +187,7 @@ if __name__ == "__main__":
         labels = unspool_labels(param_names, dicts, infos['Latex_Names'], infos['Functions'])
         plot_surviving_priors(theta,priors,labels,sims_savename.replace("h5","survivng_priors.pdf"))
         print("Quitting after simulation stage.")
-        shutil.copy(args.CONFIG, sims_savename.replace(".h5", ".yml.bk"))
+        shutil.copy(args.CONFIG, posterior_savename.replace(".h5", ".yml.bk"))
         quit()
     ################
     if args.TRAIN:
