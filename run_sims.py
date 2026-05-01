@@ -186,8 +186,8 @@ if __name__ == "__main__":
         print(f"Training {n_sim} simulations and saving to {sims_savename}")
         theta, priors = simulate_model(n_sim, n_batch, sims_savename, priors, sim_for_training, inference, device=device, batched=batched)
         plot_surviving_priors(theta,priors,labels,sims_savename.replace("h5","survivng_priors.pdf"))
+        shutil.copy(args.CONFIG, posterior_savename.replace(".pt", ".yml.bk")).replace("posterior", "sims")
         print("Quitting after simulation stage.")
-        shutil.copy(args.CONFIG, posterior_savename.replace(".h5", ".yml.bk"))
         quit()
     ################
     if args.TRAIN:
