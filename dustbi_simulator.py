@@ -543,48 +543,140 @@ def validate_order(param_names, dicts):
 
     return True
 
-
-def unspool_labels(list_of_parameter_names, dicts, latex_dict, function_dict):
+def unspool_labels(
+    param_names,
+    dicts,
+    latex_dict,
+    function_dict,
+    mixture=False,
+    infos=None
+):
     """
-    Creates a set of labels for the parameters. Takes in your regular parameter names; outputs latex labels for everything. 
+    Generate labels in EXACT same order as priors.
     """
-    empty_list = []
-    high_flag = False
-    
-    params_to_fit = parameter_generation(list_of_parameter_names, dicts)
-    
-    for name in params_to_fit:
 
-        if "_HIGH_" in name:
-            name = name.split("_HIGH_")[0]
-            high_flag = True
+    function_dict_, split_dict, priors_dict, _ = dicts
 
-        if "Truncated" in name:
-            name = name.replace("Truncated","")
+    def expand_labels(names, tag=None):
+        labels = []
 
-        try:
-            func_name = (function_dict[name].__name__)
-            func_params = latex_dict[func_name] ; pname = latex_dict[name]
-        except KeyError: #HackY!
-            if name == "STEP":
-                pname = "STEP"
-                func_params = [r"$\gamma$"]
-            elif name =="SCATTER":
-                pname = "SCATTER"
-                func_params = [r"$\sigma_{\rm int}$"]
+        for name in names:
+            if name in ['EVOL', 'STEP', 'SCATTER']:
+                continue
+
+            base_name = name
+            high_flag = False
+
+            if "_HIGH_" in base_name:
+                base_name = base_name.split("_HIGH_")[0]
+                high_flag = True
+
+            func_name = function_dict_[base_name].__name__
+
+            try:
+                pname = latex_dict[base_name]
+                func_params = latex_dict[func_name]
+            except KeyError:
+                raise ValueError(f"Missing latex entry for {base_name} or {func_name}")
+
+            def add(params):
+                for p in params:
+                    label = f"{pname} {p}"
+                    if high_flag:
+                        label = f"{pname} Hi {p}"
+                    if tag:
+                        label += f" ({tag})"
+                    labels.append(label)
+
+            # ---- Mirror prior expansion exactly ----
+
+            if "Gaussian" in func_name:
+                add(func_params[:2])  # mu, sigma
+
+                if base_name in split_dict:
+                    evol_type = split_dict[base_name][0]
+                    if evol_type == "Stepwise":
+                        add(func_params[:2])
+                    elif evol_type == "Linear":
+                        add([r"$m$"])  # slope (you may want a better latex)
+
+            elif "DistDelta" in func_name:
+                add(func_params[:1])
+
+            elif "DistExponential" in func_name:
+                add(func_params[:1])
+
+                if base_name in split_dict:
+                    evol_type = split_dict[base_name][0]
+                    if evol_type == "Stepwise":
+                        add(func_params[:1])
+                    elif evol_type == "Linear":
+                        add([r"$m$"])
+
+            elif func_name == "DistDoubleGaussian":
+                add(func_params[:5])
+
+                if base_name in split_dict:
+                    evol_type = split_dict[base_name][0]
+                    if evol_type == "Stepwise":
+                        add(func_params[:5])
+                    elif evol_type == "Linear":
+                        add([r"$m$"])
+
+            elif func_name == "DistLogistic":
+                add(func_params[:3])
+
+            elif func_name == "DistGamma":
+                add(func_params[:2])
+
             else:
-                print(f"No idea what you passed me: {name}, {func_name}")
-                
-        
-        for _ in func_params:
-            if high_flag:
-                latex_string =f'{pname} Hi {_}'
-            else:
-                latex_string =f'{pname} {_}'
-            
-            empty_list.append(latex_string)
-        high_flag = False
-    return empty_list
+                raise ValueError(f"Unknown function {func_name}")
+
+        return labels
+
+    def expand_special(names):
+        labels = []
+        if "STEP" in names:
+            labels.append(r"$\gamma$")
+        if "SCATTER" in names:
+            labels.append(r"$\sigma_{\rm int}$")
+        return labels
+
+    # -------------------------------------------------
+    # Non-mixture
+    # -------------------------------------------------
+    if not mixture:
+        return expand_labels(param_names) + expand_special(param_names)
+
+    # -------------------------------------------------
+    # Mixture
+    # -------------------------------------------------
+    pop_b = infos['Population_B']
+
+    shared_params = [
+        p for p in pop_b.get('shared_params', [])
+        if p not in ('STEP', 'SCATTER')
+    ]
+
+    split_names = [
+        n for n in param_names
+        if n not in shared_params and n not in ('STEP', 'SCATTER')
+    ]
+
+    # Pop A (full)
+    labels_A = expand_labels(param_names, tag="A")
+
+    # Pop B (split only)
+    labels_B = expand_labels(split_names, tag="B")
+
+    # Mixing
+    mix_label = [r"$f_{\mathrm{mix}}$"]
+
+    # Special (always last)
+    labels_special = expand_special(param_names)
+
+    return labels_A + labels_B + mix_label + labels_special
+
 
 def split_outputs(output_distribution, split_tensor, split_val, param_list):
     """

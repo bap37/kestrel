@@ -124,12 +124,13 @@ if __name__ == "__main__":
         special = build_special_priors(param_names, dicts, device=device)
         priors = MultipleIndependent(priors_A + priors_B_split + [f_prior] + special, device=device)
         split_positions = compute_split_positions(layout, shared_params)
+        labels = unspool_labels(param_names, dicts, infos['Latex_Names'], infos['Functions'], mixture=True, infos=infos )
         assert len(split_positions) == len(priors_B_split), \
             f"split_positions count ({len(split_positions)}) doesn't match priors_B_split count ({len(priors_B_split)})"
         print(f"Mixture mode: {len(priors_A)} pop A + {len(priors_B_split)} pop B (split) + 1 mixing + {len(special)} special = {len(priors_A)+len(priors_B_split)+1+len(special)} total priors; {len(shared_params)} param(s) shared: {shared_params}")
     else:
         priors = prior_generator(param_names, dicts, device=device)
-
+        labels = unspool_labels(param_names, dicts, infos['Latex_Names'], infos['Functions'], mixture=False, infos=infos )
 
     ndim = len(parameters_to_condition_on)
     print(f"The NN will be trained on a {ndim}-dimensional space, on {param_names}")
@@ -184,7 +185,6 @@ if __name__ == "__main__":
     if args.SIMULATE:
         print(f"Training {n_sim} simulations and saving to {sims_savename}")
         theta, priors = simulate_model(n_sim, n_batch, sims_savename, priors, sim_for_training, inference, device=device, batched=batched)
-        labels = unspool_labels(param_names, dicts, infos['Latex_Names'], infos['Functions'])
         plot_surviving_priors(theta,priors,labels,sims_savename.replace("h5","survivng_priors.pdf"))
         print("Quitting after simulation stage.")
         shutil.copy(args.CONFIG, posterior_savename.replace(".h5", ".yml.bk"))
@@ -260,9 +260,9 @@ if __name__ == "__main__":
         labels = unspool_labels(param_names, dicts, infos['Latex_Names'], infos['Functions'])
         truth = priors.sample()
         ws = [-0.9, -0.95, -1, -1.05, -1.1]
-        #cosmology_dependence(df, ws, posterior, truth, device,
-        #    parameters_to_condition_on, make_batched_simulator,
-        #        layout, param_names, dicts, dfdata, priors, labels)
+        cosmology_dependence(df, ws, posterior, truth, device,
+            parameters_to_condition_on, make_batched_simulator,
+                layout, param_names, dicts, dfdata, priors, labels)
 
 
 
