@@ -1094,7 +1094,7 @@ def build_distribution_priors(param_names, dicts, device='cpu'):
 
 
         if func_name == "DistDoubleGaussian":
-            mu1, sigma1, mu2, sigma2, a, need_positive = priors_dict[name]
+            mu1, sigma1, mu2, sigma2, a = priors_dict[name]
 
             mu1_prior = BoxUniform(
                 low= torch.tensor([mu1[0]], dtype=torch.float32, device=device),
