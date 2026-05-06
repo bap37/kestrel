@@ -1035,7 +1035,7 @@ def build_distribution_priors(param_names, dicts, device='cpu'):
 
         func_name = function_dict[name].__name__
 
-        if "Gaussian" in func_name:
+        (if "Gaussian" in func_name) and (if funcname != "DistDoubleGaussian"):
             mu0, sigma0 = priors_dict[name]
             mu_prior, sigma_prior = TwoDBoxPrior(mu0, sigma0, device=device)
             list_o_priors.extend([mu_prior, sigma_prior])
