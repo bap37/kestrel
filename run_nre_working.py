@@ -141,6 +141,66 @@ def fit_temperature(model, x_val, y_val, device="cpu", max_iter=100):
 
     return temp_model
 
+def evaluate_bayes_factor_ensemble(
+    model_class,
+    x_train,
+    y_train,
+    x_val,
+    y_val,
+    x_obs,
+    n_models=10,
+    device="cpu",
+):
+
+    log_bfs = []
+
+    for k in range(n_models):
+
+        print(f"\nTraining ensemble member {k+1}/{n_models}")
+
+        net = model_class().to(device)
+
+        net, _ = train_classifier(
+            net,
+            x_train,
+            y_train,
+            x_val,
+            y_val,
+            device=device,
+        )
+
+        net = fit_temperature(
+            net,
+            x_val,
+            y_val,
+            device=device,
+        )
+
+        net.eval()
+
+        with torch.no_grad():
+
+            x_eval = (
+                x_obs.unsqueeze(0)
+                if x_obs.ndim == 2
+                else x_obs
+            )
+
+            logit = net(x_eval.to(device)).squeeze()
+
+            prob = torch.sigmoid(logit)
+
+            # avoid infinities
+            eps = 1e-6
+            prob = prob.clamp(eps, 1 - eps)
+
+            log_bf = torch.log(prob) - torch.log1p(-prob)
+
+            log_bfs.append(log_bf.item())
+
+    return np.array(log_bfs)
+
+
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--CONFIG", help="Configuration yaml for NRE model comparison.", type=str)
@@ -297,39 +357,30 @@ if __name__ == "__main__":
 
         print(f"Training classifier: {n_train} train, {n_val} val samples")
 
-        net = ModelComparisonNet(input_dim=ndim)
-        net, best_val_loss = train_classifier(
-            net, x_train, y_train, x_val, y_val, device=device
-        )
-
-        # --- temperature calibration ---
-        net = fit_temperature(
-            net,
+        log_bfs = evaluate_bayes_factor_ensemble(
+            lambda: ModelComparisonNet(input_dim=ndim),
+            x_train,
+            y_train,
             x_val,
             y_val,
-            device=device
+            x_obs,
+            n_models=20,
+            device=device,
         )
 
-        # --- evaluate observed data ---
-        net.eval()
+        median_log_bf = np.median(log_bfs)
 
-        with torch.no_grad():
+        low68, high68 = np.percentile(log_bfs, [16, 84])
+        low95, high95 = np.percentile(log_bfs, [2.5, 97.5])
 
-            # add batch dim if needed
-            if x_obs.ndim == 2:
-                x_obs_eval = x_obs.unsqueeze(0)
-            else:
-                x_obs_eval = x_obs
+        #print(f"\nlog BF median = {median_log_bf:.3f}")
+        #print(f"68% interval  = [{low68:.3f}, {high68:.3f}]")
+        #print(f"95% interval  = [{low95:.3f}, {high95:.3f}]")
 
-            logit = net(x_obs_eval.to(device)).squeeze()
+        #print(f"\nBF median = {np.exp(median_log_bf):.3g}")
 
-            prob = torch.sigmoid(logit)
-
-        bf = prob / (1 - prob)
-        log10_bf = torch.log(prob) - torch.log1p(-prob)
-
-        print("Calibrated logit:", logit.item())
-        print("Calibrated probability:", prob.item())
+        #print("Calibrated logit:", logit.item())
+        #print("Calibrated probability:", prob.item())
         # BF_12 = p(x|M1) / p(x|M2) = exp(-logit)
         # (logit > 0 means classifier favours M2)
         import math
@@ -337,7 +388,7 @@ if __name__ == "__main__":
         #bf = 10 ** log10_bf
 
         # Jeffreys scale interpretation
-        abs_log10 = abs(log10_bf)
+        abs_log10 = abs(median_log_bf)
         if abs_log10 < 0.5:
             strength = "Not worth more than a bare mention"
         elif abs_log10 < 1.0:
@@ -351,6 +402,12 @@ if __name__ == "__main__":
 
         favoured = args.CONFIG if bf > 1 else model_path
 
-        print(f"\nlog10(BF) {args.CONFIG} vs {model_path}: {log10_bf:.4f}")
-        print(f"Bayes Factor: {bf:.4f}")
+        err_low = median_log_bf - low68
+        err_high = high68 - median_log_bf
+
+        print(
+            f"\nlog10(BF) {args.CONFIG} vs {model_path} (68%): "
+            f"${median_log_bf:.4f}_{{-{err_low:.4f}}}^{{+{err_high:.4f}}}$"
+        )
+        #print(f"Bayes Factor: {bf:.4f}")
         print(f"  -> {strength} evidence favouring {favoured}")
