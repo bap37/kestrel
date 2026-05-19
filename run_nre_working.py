@@ -4,11 +4,142 @@ from dustbi_nn import PopulationEmbeddingFull
 import argparse
 import torch
 import torch.nn as nn
-from sbi.neural_nets import classifier_nn
-from sbi.inference import NRE_A
 
 
+class ModelComparisonNet(nn.Module):
+    """Binary classifier for model comparison via the classification approach
+    to Bayes factors (Cranmer et al. 2015).
 
+    Embeds a population of SNe via attention pooling, then classifies
+    which model generated the population.
+    """
+    def __init__(self, input_dim, embed_hidden=64, embed_output=32):
+        super().__init__()
+        self.embedding = PopulationEmbeddingFull(
+            input_dim=input_dim, hidden_dim=embed_hidden, output_dim=embed_output
+        )
+        self.head = nn.Sequential(
+            nn.Linear(embed_output, 64),
+            nn.ReLU(),
+            nn.Linear(64, 1),
+        )
+
+    def forward(self, x):
+        h = self.embedding(x)   # (batch, embed_output)
+        return self.head(h)      # (batch, 1)  — raw logit
+
+
+class TemperatureScaledModel(nn.Module):
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
+        self.temperature = nn.Parameter(torch.ones(1))
+
+    def forward(self, x):
+        logits = self.model(x)
+        return logits / self.temperature.clamp(min=1e-6)
+
+def train_classifier(net, x_train, y_train, x_val, y_val,
+                     device="cpu", lr=1e-3, batch_size=64,
+                     max_epochs=200, patience=15):
+    """Train the binary classifier with early stopping on validation loss."""
+    net = net.to(device)
+    optimiser = torch.optim.Adam(net.parameters(), lr=lr)
+    loss_fn = nn.BCEWithLogitsLoss()
+
+    best_val_loss = float("inf")
+    epochs_without_improvement = 0
+    best_state = None
+
+    n_train = x_train.shape[0]
+
+    for epoch in range(max_epochs):
+        net.train()
+        perm = torch.randperm(n_train)
+        epoch_loss = 0.0
+
+        for start in range(0, n_train, batch_size):
+            idx = perm[start : start + batch_size]
+            xb = x_train[idx].to(device)
+            yb = y_train[idx].to(device)
+
+            logits = net(xb).squeeze(-1)
+            loss = loss_fn(logits, yb)
+
+            optimiser.zero_grad()
+            loss.backward()
+            optimiser.step()
+            epoch_loss += loss.item() * len(idx)
+
+        epoch_loss /= n_train
+
+        # Validation (batched to avoid OOM on large populations)
+        net.eval()
+        with torch.no_grad():
+            val_logits_list = []
+            for vs in range(0, x_val.shape[0], batch_size):
+                vb = x_val[vs : vs + batch_size].to(device)
+                val_logits_list.append(net(vb).squeeze(-1))
+            val_logits = torch.cat(val_logits_list)
+            val_loss = loss_fn(val_logits, y_val.to(device)).item()
+            val_acc = ((val_logits > 0).float() == y_val.to(device)).float().mean().item()
+
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            epochs_without_improvement = 0
+            best_state = {k: v.cpu().clone() for k, v in net.state_dict().items()}
+        else:
+            epochs_without_improvement += 1
+
+        if (epoch + 1) % 20 == 0 or epochs_without_improvement == 0:
+            print(f"  Epoch {epoch+1:3d}  train_loss={epoch_loss:.4f}  "
+                  f"val_loss={val_loss:.4f}  val_acc={val_acc:.3f}")
+
+        if epochs_without_improvement >= patience:
+            print(f"  Early stopping at epoch {epoch+1}")
+            break
+
+    net.load_state_dict(best_state)
+    net.eval()
+    return net, best_val_loss
+
+
+def fit_temperature(model, x_val, y_val, device="cpu", max_iter=100):
+
+    model = model.to(device)
+    model.eval()
+
+    temp_model = TemperatureScaledModel(model).to(device)
+
+    # freeze original network
+    for p in temp_model.model.parameters():
+        p.requires_grad = False
+
+    optimiser = torch.optim.LBFGS(
+        [temp_model.temperature],
+        lr=0.01,
+        max_iter=max_iter
+    )
+
+    loss_fn = nn.BCEWithLogitsLoss()
+
+    x_val = x_val.to(device)
+    y_val = y_val.to(device)
+
+    def closure():
+        optimiser.zero_grad()
+
+        logits = temp_model(x_val).squeeze(-1)
+        loss = loss_fn(logits, y_val)
+
+        loss.backward()
+        return loss
+
+    optimiser.step(closure)
+
+    print("Learned temperature:", temp_model.temperature.item())
+
+    return temp_model
 
 def get_args():
     parser = argparse.ArgumentParser()
@@ -91,25 +222,8 @@ if __name__ == "__main__":
 
     # NaN mask for model 1 (constant across comparisons)
     mask1 = torch.isfinite(x1).all(dim=(1, 2))
-    x1_clean = torch.nan_to_num(x1, nan=999999999)
+    x1_clean = x1[mask1]
     print(f"  {args.CONFIG}: {x1_clean.shape[0]} valid / {x1.shape[0]} total")
-
-    classifier1 = classifier_nn(
-        model="resnet",
-        embedding_net_x=PopulationEmbeddingFull(input_dim=ndim),
-    )
-
-    inference1 = NRE_A(
-        prior=priors_1,
-        classifier=classifier1,
-    )
-
-    ratio_estimator1 = (
-        inference1
-        .append_simulations(theta_1, x1_clean)
-        .train()
-    )
-
 
     # --- Compare against each model ---
     for model_path in infos['Models_Comparison']:
@@ -118,14 +232,6 @@ if __name__ == "__main__":
         print(f"{'='*60}")
 
         comp_infos = load_kestrel(model_path)
-
-        try: 
-            comp_infos['Splits']
-        except KeyError:
-            comp_infos['Splits'] = {}
-            print("Temporarily hacking splits to be an empty dict")
-        
-
         dicts_2 = [comp_infos['Functions'], comp_infos['Splits'],
                     comp_infos['Priors'], comp_infos['Correlations']]
         param_names_2 = comp_infos['param_names']
@@ -161,56 +267,81 @@ if __name__ == "__main__":
         x2 = comp_sim(theta_2).cpu()
 
         mask2 = torch.isfinite(x2).all(dim=(1, 2))
-        x2_clean = torch.nan_to_num(x2, nan=999999999)
+        x2_clean = x2[mask2]
         print(f"  {model_path}: {x2_clean.shape[0]} valid / {x2.shape[0]} total")
 
-        classifier2 = classifier_nn(
-            model="resnet",
-            embedding_net_x=PopulationEmbeddingFull(input_dim=ndim),
+        # Balance classes
+        n_use = min(x1_clean.shape[0], x2_clean.shape[0])
+        x_combined = torch.cat([x1_clean[:n_use], x2_clean[:n_use]], dim=0)
+        y_combined = torch.cat([torch.zeros(n_use), torch.ones(n_use)])
+
+        # Shuffle and split train/val
+        perm = torch.randperm(2 * n_use)
+        x_combined = x_combined[perm]
+        y_combined = y_combined[perm]
+
+        n_val = max(1, int(0.1 * 2 * n_use))
+        n_train = 2 * n_use - n_val
+
+        x_train, x_val = x_combined[:n_train], x_combined[n_train:]
+        y_train, y_val = y_combined[:n_train], y_combined[n_train:]
+
+        print(f"Training classifier: {n_train} train, {n_val} val samples")
+
+        net = ModelComparisonNet(input_dim=ndim)
+        net, best_val_loss = train_classifier(
+            net, x_train, y_train, x_val, y_val, device=device
         )
 
-        inference2 = NRE_A(
-            prior=priors_2,
-            classifier=classifier2,
+        # --- temperature calibration ---
+        net = fit_temperature(
+            net,
+            x_val,
+            y_val,
+            device=device
         )
 
-        ratio_estimator2 = (
-            inference2
-            .append_simulations(theta_2, x2_clean)
-            .train()
-        )
+        # --- evaluate observed data ---
+        net.eval()
+
         with torch.no_grad():
 
+            # add batch dim if needed
+            if x_obs.ndim == 2:
+                x_obs_eval = x_obs.unsqueeze(0)
+            else:
+                x_obs_eval = x_obs
 
-            N = 10000
+            logit = net(x_obs_eval.to(device)).squeeze()
 
-            x_obs_batch = x_obs
+            prob = torch.sigmoid(logit)
 
-            # ---- Model 1 ----
+        bf = prob / (1 - prob)
+        log10_bf = torch.log(prob) - torch.log1p(-prob)
 
-            theta_mc_1 = priors_1.sample((N,))
-            x_rep_1 = x_obs_batch.expand(N, -1, -1)
+        print("Calibrated logit:", logit.item())
+        print("Calibrated probability:", prob.item())
+        # BF_12 = p(x|M1) / p(x|M2) = exp(-logit)
+        # (logit > 0 means classifier favours M2)
+        import math
+        #log10_bf = -logit.item() / math.log(10)
+        #bf = 10 ** log10_bf
 
-            log_r1 = ratio_estimator1(theta_mc_1, x_rep_1)
+        # Jeffreys scale interpretation
+        abs_log10 = abs(log10_bf)
+        if abs_log10 < 0.5:
+            strength = "Not worth more than a bare mention"
+        elif abs_log10 < 1.0:
+            strength = "Substantial"
+        elif abs_log10 < 1.5:
+            strength = "Strong"
+        elif abs_log10 < 2.0:
+            strength = "Very strong"
+        else:
+            strength = "Decisive"
 
-            log_evidence1 = torch.logsumexp(log_r1, dim=0) - torch.log(
-                torch.tensor(log_r1.shape[0], dtype=torch.float32)
-            )
+        favoured = args.CONFIG if bf > 1 else model_path
 
-            # ---- Model 2 ----
-            theta_mc_2 = priors_2.sample((N,))
-            x_rep_2 = x_obs_batch.expand(N, -1, -1)
-
-            log_r2 = ratio_estimator2(theta_mc_2, x_rep_2)
-
-
-            log_evidence2 = torch.logsumexp(log_r2, dim=0) - torch.log(
-                torch.tensor(log_r2.shape[0], dtype=torch.float32)
-            )
-
-            # ---- Bayes factor (stay in log space!) ----
-            log_bf_12 = log_evidence1 - log_evidence2
-
-            print(log_bf_12)
-            bf_12 = torch.exp(log_bf_12)
-            print("Exponentiated Factor",bf_12)
+        print(f"\nlog10(BF) {args.CONFIG} vs {model_path}: {log10_bf:.4f}")
+        print(f"Bayes Factor: {bf:.4f}")
+        print(f"  -> {strength} evidence favouring {favoured}")
