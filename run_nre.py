@@ -2,8 +2,14 @@ from dustbi_simulator import *
 from Functions import *
 from dustbi_nn import PopulationEmbeddingFull
 import argparse
+import math
+import os
 import torch
 import torch.nn as nn
+import numpy as np
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 
 
 class ModelComparisonNet(nn.Module):
@@ -29,17 +35,43 @@ class ModelComparisonNet(nn.Module):
         return self.head(h)      # (batch, 1)  — raw logit
 
 
+def standardise_features(x_train, x_obs, eps=1e-6):
+    """Z-score x_train per feature; apply same transform to x_obs.
+
+    Stats are computed across (batch, n_sne) for each of the n_feat columns
+    using the training data only.
+    """
+    flat = x_train.reshape(-1, x_train.shape[-1])
+    mean = flat.mean(dim=0)
+    std = flat.std(dim=0).clamp(min=eps)
+    return (x_train - mean) / std, (x_obs - mean) / std, mean, std
+
+
 def train_classifier(net, x_train, y_train, x_val, y_val,
                      device="cpu", lr=1e-3, batch_size=64,
                      max_epochs=200, patience=15):
-    """Train the binary classifier with early stopping on validation loss."""
+    """Train the binary classifier with early stopping on validation loss.
+
+    Returns
+    -------
+    net : nn.Module
+        Trained network loaded with the best-val-loss state.
+    best_val_loss : float
+    best_val_acc : float
+        Val accuracy at the best-val-loss epoch (i.e. matches the returned net).
+    train_curve : list[float]
+    val_curve : list[float]
+    """
     net = net.to(device)
     optimiser = torch.optim.Adam(net.parameters(), lr=lr)
     loss_fn = nn.BCEWithLogitsLoss()
 
     best_val_loss = float("inf")
+    best_val_acc = 0.0
     epochs_without_improvement = 0
     best_state = None
+    train_curve = []
+    val_curve = []
 
     n_train = x_train.shape[0]
 
@@ -63,7 +95,6 @@ def train_classifier(net, x_train, y_train, x_val, y_val,
 
         epoch_loss /= n_train
 
-        # Validation (batched to avoid OOM on large populations)
         net.eval()
         with torch.no_grad():
             val_logits_list = []
@@ -71,11 +102,16 @@ def train_classifier(net, x_train, y_train, x_val, y_val,
                 vb = x_val[vs : vs + batch_size].to(device)
                 val_logits_list.append(net(vb).squeeze(-1))
             val_logits = torch.cat(val_logits_list)
-            val_loss = loss_fn(val_logits, y_val.to(device)).item()
-            val_acc = ((val_logits > 0).float() == y_val.to(device)).float().mean().item()
+            y_val_dev = y_val.to(device)
+            val_loss = loss_fn(val_logits, y_val_dev).item()
+            val_acc = ((val_logits > 0).float() == y_val_dev).float().mean().item()
+
+        train_curve.append(epoch_loss)
+        val_curve.append(val_loss)
 
         if val_loss < best_val_loss:
             best_val_loss = val_loss
+            best_val_acc = val_acc
             epochs_without_improvement = 0
             best_state = {k: v.cpu().clone() for k, v in net.state_dict().items()}
         else:
@@ -91,15 +127,56 @@ def train_classifier(net, x_train, y_train, x_val, y_val,
 
     net.load_state_dict(best_state)
     net.eval()
-    return net, best_val_loss
+    return net, best_val_loss, best_val_acc, train_curve, val_curve
+
+
+def fit_temperature(net, x_val, y_val, device, batch_size=64):
+    """Post-hoc temperature scaling (Guo et al. 2017).
+
+    Fit a single scalar T > 0 on the val set by minimising BCE on logits/T.
+    Returns the fitted T.
+    """
+    net.eval()
+    with torch.no_grad():
+        logits_parts = []
+        for i in range(0, x_val.shape[0], batch_size):
+            logits_parts.append(net(x_val[i:i+batch_size].to(device)).squeeze(-1))
+        logits = torch.cat(logits_parts)
+    y = y_val.to(device)
+    log_T = torch.zeros(1, device=device, requires_grad=True)
+    opt = torch.optim.LBFGS([log_T], lr=0.1, max_iter=50)
+    loss_fn = nn.BCEWithLogitsLoss()
+
+    def closure():
+        opt.zero_grad()
+        loss = loss_fn(logits / log_T.exp(), y)
+        loss.backward()
+        return loss
+
+    opt.step(closure)
+    return float(log_T.exp().item())
+
+
+def jeffreys_strength(abs_log10):
+    if abs_log10 < 0.5:
+        return "Not worth more than a bare mention"
+    if abs_log10 < 1.0:
+        return "Substantial"
+    if abs_log10 < 1.5:
+        return "Strong"
+    if abs_log10 < 2.0:
+        return "Very strong"
+    return "Decisive"
 
 
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--CONFIG", help="Configuration yaml for NRE model comparison.", type=str)
+    parser.add_argument("--SEED", help="Master random seed for reproducibility.", type=int, default=0)
+    parser.add_argument("--N_ENSEMBLE", help="Number of classifier seeds to average over (>=2 enables error bars).",
+                        type=int, default=1)
     parser.add_argument("--BIRD", help="Prints a nice bird :)", action="store_true")
-    args = parser.parse_args()
-    return args
+    return parser.parse_args()
 
 
 if __name__ == "__main__":
@@ -114,6 +191,9 @@ if __name__ == "__main__":
         print("No configuration file provided via --CONFIG. Quitting.")
         quit()
 
+    torch.manual_seed(args.SEED)
+    np.random.seed(args.SEED)
+
     infos = load_kestrel(args.CONFIG)
 
     datfilename = infos['Data_File'][0]
@@ -127,7 +207,6 @@ if __name__ == "__main__":
 
     num_simulations = infos['sim_parameters']['n_sim']
 
-    # Compute MURES for sim bank and data
     output_distribution = preprocess_input_distribution(
         df, parameters_to_condition_on[:-1] + ['x0', 'x0ERR', 'MU'])
     df['MURES'] = add_distance(output_distribution)
@@ -136,7 +215,6 @@ if __name__ == "__main__":
         dfdata, parameters_to_condition_on[:-1] + ['x0', 'x0ERR', 'MU'])
     dfdata['MURES'] = add_distance(output_distribution)
 
-    # Observed data — shape (n_sne, ndim) -> unsqueeze to (1, n_sne, ndim)
     x_obs = preprocess_data(parameters_to_condition_on, dfdata).unsqueeze(0)
 
     # --- Nominal model (model 1) ---
@@ -173,7 +251,6 @@ if __name__ == "__main__":
     theta_1 = priors_1.sample((num_simulations,)).to(device)
     x1 = nominal_sim(theta_1).cpu()
 
-    # NaN mask for model 1 (constant across comparisons)
     mask1 = torch.isfinite(x1).all(dim=(1, 2))
     x1_clean = x1[mask1]
     print(f"  {args.CONFIG}: {x1_clean.shape[0]} valid / {x1.shape[0]} total")
@@ -228,6 +305,10 @@ if __name__ == "__main__":
         x_combined = torch.cat([x1_clean[:n_use], x2_clean[:n_use]], dim=0)
         y_combined = torch.cat([torch.zeros(n_use), torch.ones(n_use)])
 
+        # Z-score features (computed on combined training data, applied to x_obs identically)
+        x_combined, x_obs_norm, feat_mean, feat_std = standardise_features(x_combined, x_obs)
+        x_obs_norm_dev = x_obs_norm.to(device)
+
         # Shuffle and split train/val
         perm = torch.randperm(2 * n_use)
         x_combined = x_combined[perm]
@@ -239,39 +320,71 @@ if __name__ == "__main__":
         x_train, x_val = x_combined[:n_train], x_combined[n_train:]
         y_train, y_val = y_combined[:n_train], y_combined[n_train:]
 
-        print(f"Training classifier: {n_train} train, {n_val} val samples")
+        print(f"Training classifier: {n_train} train, {n_val} val samples (ensemble of {args.N_ENSEMBLE})")
 
-        net = ModelComparisonNet(input_dim=ndim)
-        net, best_val_loss = train_classifier(
-            net, x_train, y_train, x_val, y_val, device=device
-        )
+        log10_bfs = []
+        val_accs = []
+        val_losses = []
+        temperatures = []
+        train_curves = []
+        val_curves = []
 
-        # Evaluate on observed data
-        net.eval()
-        with torch.no_grad():
-            logit = net(x_obs.to(device)).squeeze()
+        for k in range(args.N_ENSEMBLE):
+            torch.manual_seed(args.SEED + k)
+            np.random.seed(args.SEED + k)
+            print(f"\n[Ensemble member {k+1}/{args.N_ENSEMBLE}, seed={args.SEED + k}]")
+            net = ModelComparisonNet(input_dim=ndim)
+            net, val_loss, val_acc, tc, vc = train_classifier(
+                net, x_train, y_train, x_val, y_val, device=device
+            )
 
-        # BF_12 = p(x|M1) / p(x|M2) = exp(-logit)
-        # (logit > 0 means classifier favours M2)
-        import math
-        log10_bf = -logit.item() / math.log(10)
-        bf = 10 ** log10_bf
+            T = fit_temperature(net, x_val, y_val, device)
+            print(f"  Calibration temperature T = {T:.3f}")
 
-        # Jeffreys scale interpretation
-        abs_log10 = abs(log10_bf)
-        if abs_log10 < 0.5:
-            strength = "Not worth more than a bare mention"
-        elif abs_log10 < 1.0:
-            strength = "Substantial"
-        elif abs_log10 < 1.5:
-            strength = "Strong"
-        elif abs_log10 < 2.0:
-            strength = "Very strong"
+            net.eval()
+            with torch.no_grad():
+                logit = net(x_obs_norm_dev).squeeze() / T
+            log10_bfs.append(-logit.item() / math.log(10))
+            val_accs.append(val_acc)
+            val_losses.append(val_loss)
+            temperatures.append(T)
+            train_curves.append(tc)
+            val_curves.append(vc)
+
+        log10_bf_mean = float(np.mean(log10_bfs))
+        favoured = args.CONFIG if log10_bf_mean > 0 else model_path
+
+        print(f"\n{'-'*60}")
+        if args.N_ENSEMBLE > 1:
+            log10_bf_std = float(np.std(log10_bfs))
+            print(f"log10(BF) {args.CONFIG} vs {model_path}: {log10_bf_mean:.4f} +/- {log10_bf_std:.4f}  (over {args.N_ENSEMBLE} seeds)")
         else:
-            strength = "Decisive"
+            print(f"log10(BF) {args.CONFIG} vs {model_path}: {log10_bf_mean:.4f}")
+        print(f"Mean Bayes Factor: {10**log10_bf_mean:.4f}")
+        print(f"Mean val accuracy: {np.mean(val_accs):.3f}, mean T: {np.mean(temperatures):.3f}")
+        print(f"  -> {jeffreys_strength(abs(log10_bf_mean))} evidence favouring {favoured}")
 
-        favoured = args.CONFIG if bf > 1 else model_path
-
-        print(f"\nlog10(BF) {args.CONFIG} vs {model_path}: {log10_bf:.4f}")
-        print(f"Bayes Factor: {bf:.4f}")
-        print(f"  -> {strength} evidence favouring {favoured}")
+        # Diagnostic plot: per-ensemble train/val loss curves.
+        # Each ensemble member gets a distinct colour; train solid, val dashed.
+        try:
+            os.makedirs("posteriors", exist_ok=True)
+            fig, ax = plt.subplots(figsize=(6, 4))
+            K = len(train_curves)
+            cmap = plt.get_cmap('viridis')
+            for k, (tc, vc) in enumerate(zip(train_curves, val_curves)):
+                colour = cmap(k / max(K - 1, 1))
+                ax.plot(tc, color=colour, alpha=0.8, lw=1, linestyle='-',
+                        label=f'k={k} train' if K > 1 else 'train')
+                ax.plot(vc, color=colour, alpha=0.8, lw=1, linestyle='--',
+                        label=f'k={k} val' if K > 1 else 'val')
+            ax.set_xlabel('Epoch')
+            ax.set_ylabel('BCE loss')
+            ax.set_yscale('log')
+            ax.legend(loc='upper right', fontsize=8, ncol=max(1, K // 4))
+            ax.set_title(f"{args.CONFIG} vs {model_path}")
+            out = f"posteriors/nre_loss_{os.path.basename(args.CONFIG).replace('.yml','')}_vs_{os.path.basename(model_path).replace('.yml','')}.pdf"
+            fig.savefig(out, bbox_inches='tight')
+            plt.close(fig)
+            print(f"  Loss curve plot saved to {out}")
+        except Exception as e:
+            print(f"  (loss plot skipped: {e})")
