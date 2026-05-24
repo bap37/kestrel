@@ -244,7 +244,6 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
             device=device
         )
 
-
     N = len(df)
     n_target = len(dfdata)
 
@@ -369,8 +368,9 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
                 theta_B = theta_A.clone()
                 theta_B[:, split_idx_tensor.to(theta.device)] = theta_B_split
             f = theta[:, f_idx].unsqueeze(1)  # (B, 1)
-            joint_weights = f * _compute_joint_weights(theta_A, B, dev, extra_tensors=extra_tensors) \
-                      + (1 - f) * _compute_joint_weights(theta_B, B, dev, extra_tensors=extra_tensors)
+            weights_A = _compute_joint_weights(theta_A,B,dev,extra_tensors=extra_tensors)
+            weights_B = _compute_joint_weights(theta_B,B,dev,extra_tensors=extra_tensors)
+            joint_weights = (f * weights_A+ (1 - f) * weights_B)
         else:
             joint_weights = _compute_joint_weights(theta, B, dev, extra_tensors=extra_tensors)
 
@@ -386,28 +386,46 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
         ess = 1.0 / torch.sum(normalized_weights ** 2, dim=1)  # (B,)
         bad_mask = bad_mask | (ess < n_target)
 
-        # --- Batched multinomial: draw n_target samples per theta ---
-        resampled_idx = torch.multinomial(
-            normalized_weights, num_samples=n_target, replacement=True
-        )  # (B, n_target)
+        if mixture:
+            # Draw latent population assignments
+            # True  -> Population A
+            # False -> Population B
+            pop_choice = torch.bernoulli(
+                f.expand(-1, n_target)
+            ).bool()
+
+            # Normalize each population independently
+            norm_A = weights_A / weights_A.sum(dim=1, keepdim=True)
+            norm_B = weights_B / weights_B.sum(dim=1, keepdim=True)
+
+            # Sample indices independently from each population
+            idx_A = torch.multinomial(norm_A,num_samples=n_target,replacement=True)
+            idx_B = torch.multinomial(norm_B,num_samples=n_target,replacement=True)
+            resampled_idx = torch.where(pop_choice,idx_A,idx_B)
+        else:
+            resampled_idx = torch.multinomial(
+                normalized_weights,
+                num_samples=n_target,
+                replacement=True
+            )
 
         # --- Batched output tensor indexing ---
         result = output_stack[resampled_idx]  # (B, n_target, n_features)
 
-        #then add whatever proposed step is necessary; I will need to come back to this to make it less hard-coded
         if "STEP" in param_names:
-            if "SCATTER" in param_names:
-                temp_index = -2
-            else:
-                temp_index = -1
+            temp_index = param_names.index("STEP")
             gamma = theta[:, temp_index].unsqueeze(1)       # (B,1)
-            y = result[:, :, y_idx]                 # (B, n_target)
-            step = torch.where(y < step_threshold, -gamma/2, gamma/2)  # (B, n_target)
-            result[:, :, step_indices] += step.unsqueeze(-1)
+            if mixture:
+                step = torch.where(pop_choice.unsqueeze(-1),gamma / 2,  -gamma / 2)
+
+            else:
+                y = result[:, :, y_idx]                 # (B, n_target)
+                step = torch.where(y < step_threshold, -gamma/2, gamma/2)  # (B, n_target)
+        result[:, :, step_indices] += step.unsqueeze(-1)
 
         #Then if grey scatter is enabled, add it to this nonsense.            
         if "SCATTER" in param_names:
-            temp_index = -1
+            temp_index = param_names.index("SCATTER")
             scatter = theta[:, temp_index].view(-1, 1, 1)
             scatter = torch.clamp(scatter, min=1e-6)
             noise = torch.randn(
