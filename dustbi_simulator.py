@@ -414,19 +414,16 @@ def make_batched_simulator(layout, df, param_names, parameters_to_condition_on,
 
         if "STEP" in param_names:
             temp_index = param_names.index("STEP")
-                # (B,1)
             if mixture:
-                print("is mixture")
                 gamma = theta[:, temp_index].view(-1, 1, 1)
                 step = torch.where(pop_choice.unsqueeze(-1),gamma / 2,  -gamma / 2)
 
             else:
                 gamma = theta[:, temp_index].unsqueeze(1)   
-                y = result[:, :, y_idx]                 # (B, n_target)
+                y = result[:, :, y_idx]  
                 step = torch.where(y < step_threshold, -gamma/2, gamma/2)  # (B, n_target)
-        result[:, :, step_indices] = (
-            result[:, :, step_indices] + step.unsqueeze(-1)
-            )
+        for idx in step_indices.tolist():
+            result[:, :, idx] += step.squeeze(-1)
 
         #Then if grey scatter is enabled, add it to this nonsense.            
         if "SCATTER" in param_names:
